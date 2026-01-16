@@ -114,26 +114,30 @@ public async Task WebAPI_SimpleQuery_ProducesOutput()
     // Arrange
     var httpClient = new HttpClient();
     var baseUrl = "http://localhost:5000";
+    var request = new { query = "What is machine learning?" };
     
     // Act
     var response = await httpClient.PostAsJsonAsync(
-        $"{baseUrl}/api/research/master",
-        new { query = "What is machine learning?" }
+        $"{baseUrl}/api/workflow/run",
+        request
     );
-    var result = await response.Content.ReadAsStringAsync();
+    var payload = await response.Content.ReadFromJsonAsync<RunWorkflowResponse>();
     
     // Assert
     Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
-    Assert.NotEmpty(result);
-    Assert.True(result.Length > 500); // Should produce meaningful output
+    Assert.NotNull(payload);
+    Assert.Equal(request.query, payload!.Query);
+    Assert.Contains("workflow complete", payload.Updates.Last(), StringComparison.OrdinalIgnoreCase);
 }
+
+public record RunWorkflowResponse(string Query, List<string> Updates);
 ```
 
 **Success Criteria:**
 - ✅ HTTP 200 OK
-- ✅ Output > 500 characters
+- ✅ Updates list contains streaming progress
+- ✅ Final update includes "workflow complete"
 - ✅ Completes within 2 minutes
-- ✅ Output is coherent
 - ✅ Agent-Lightning optimizations logged
 
 ---
@@ -148,7 +152,6 @@ public async Task WebAPI_FiveConcurrentQueries_CompleteSuccessfully()
     // Arrange
     var httpClient = new HttpClient();
     var baseUrl = "http://localhost:5000";
-    var tasks = new List<Task<string>>();
     var queries = new[]
     {
         "What is quantum computing?",
@@ -160,27 +163,21 @@ public async Task WebAPI_FiveConcurrentQueries_CompleteSuccessfully()
     
     // Act
     var stopwatch = Stopwatch.StartNew();
-    foreach (var query in queries)
+    var results = await Task.WhenAll(queries.Select(async query =>
     {
-        var task = Task.Run(async () =>
-        {
-            var response = await httpClient.PostAsJsonAsync(
-                $"{baseUrl}/api/research/master",
-                new { query }
-            );
-            return await response.Content.ReadAsStringAsync();
-        });
-        tasks.Add(task);
-    }
-    var results = await Task.WhenAll(tasks);
+        var response = await httpClient.PostAsJsonAsync(
+            $"{baseUrl}/api/workflow/run",
+            new { query }
+        );
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<RunWorkflowResponse>();
+    }));
     stopwatch.Stop();
     
     // Assert
-    Assert.All(results, r => Assert.NotEmpty(r));
+    Assert.All(results, r => Assert.NotNull(r));
+    Assert.All(results!, r => Assert.True(r!.Updates.Any()));
     Assert.True(stopwatch.Elapsed < TimeSpan.FromMinutes(5));
-    
-    // Verify Agent-Lightning handled concurrency
-    Assert.All(results, r => Assert.True(r.Length > 500));
 }
 ```
 
@@ -205,33 +202,30 @@ public async Task WebAPI_TwentyQueriesInSequence_NoMemoryLeaks()
     var baseUrl = "http://localhost:5000";
     var initialMemory = GC.GetTotalMemory(true);
     
-    var queries = new[]
-    {
-        "What is machine learning?",
-        "How does reinforcement learning work?",
-        // ... 18 more queries
-    };
+    var queries = Enumerable.Range(1, 20)
+        .Select(i => $"Stability run #{i} - explain large language models")
+        .ToArray();
     
     // Act
     foreach (var query in queries)
     {
         var response = await httpClient.PostAsJsonAsync(
-            $"{baseUrl}/api/research/master",
+            $"{baseUrl}/api/workflow/run",
             new { query }
         );
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<RunWorkflowResponse>();
+        Assert.NotNull(payload);
+        Assert.True(payload!.Updates.Any());
         
-        await Task.Delay(5000); // 5 second pause between queries
-        GC.Collect(); // Force garbage collection
+        await Task.Delay(2000);
+        GC.Collect();
     }
     var finalMemory = GC.GetTotalMemory(true);
     
     // Assert
     var memoryGrowth = finalMemory - initialMemory;
-    Assert.True(memoryGrowth < 500_000_000); // < 500MB growth
-    
-    // Verify VERL maintained quality throughout
-    Assert.True(stopwatch.Elapsed < TimeSpan.FromHours(5)); // Should take < 5 hours
+    Assert.True(memoryGrowth < 500_000_000);
 }
 ```
 
@@ -652,6 +646,6 @@ curl -X POST http://localhost:5000/api/research/master \
 
 **PHASE3_KICKOFF_GUIDE Updated**: 2026-01-16  
 **Previous Version**: 2024-12-23  
-**Changes**: Web API integration, Agent-Lightning (APO + VERL), Docker Compose with Lightning Server, Health checks
+**Changes**: Web API integration (/api/workflow/run streaming), Agent-Lightning (APO + VERL), Docker Compose with Lightning Server, Health checks
 
 **Next Step**: Verify all services are running, then run health check endpoint

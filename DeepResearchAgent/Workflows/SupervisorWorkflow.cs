@@ -5,6 +5,7 @@ using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
+using DeepResearchAgent.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Workflows;
@@ -29,6 +30,7 @@ public class SupervisorWorkflow
     private readonly LightningStore? _store;
     private readonly ILogger<SupervisorWorkflow>? _logger;
     private readonly StateManager? _stateManager;
+    private readonly WorkflowModelConfiguration _modelConfig;
 
     public SupervisorWorkflow(
         ILightningStateService stateService,
@@ -36,7 +38,8 @@ public class SupervisorWorkflow
         OllamaService llmService,
         LightningStore? store = null,
         ILogger<SupervisorWorkflow>? logger = null,
-        StateManager? stateManager = null)
+        StateManager? stateManager = null,
+        WorkflowModelConfiguration? modelConfig = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _researcher = researcher ?? throw new ArgumentNullException(nameof(researcher));
@@ -44,6 +47,14 @@ public class SupervisorWorkflow
         _store = store;
         _logger = logger;
         _stateManager = stateManager;
+        _modelConfig = modelConfig ?? new WorkflowModelConfiguration();
+
+        _logger?.LogInformation("SupervisorWorkflow initialized with model configuration: Brain={brain}, Tools={tools}, QualityEvaluator={evaluator}, RedTeam={redteam}, ContextPruner={pruner}",
+            _modelConfig.SupervisorBrainModel,
+            _modelConfig.SupervisorToolsModel,
+            _modelConfig.QualityEvaluatorModel,
+            _modelConfig.RedTeamModel,
+            _modelConfig.ContextPrunerModel);
     }
 
     /// <summary>
@@ -279,6 +290,7 @@ public class SupervisorWorkflow
     /// <summary>
     /// Step 1: Supervisor Brain - High-level decision making.
     /// Injects unaddressed critiques and quality warnings into the decision context.
+    /// Uses the SupervisorBrainModel for decision-making.
     /// Maps to Python lines 650-750
     /// </summary>
     public async Task<Models.ChatMessage> SupervisorBrainAsync(
@@ -342,9 +354,10 @@ Respond concisely with your decision and reasoning.";
             // Add conversation history
             messages.AddRange(state.SupervisorMessages.Cast<OllamaChatMessage>());
 
-            var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
+            var brainModel = _modelConfig.GetModelForFunction(WorkflowFunction.SupervisorBrain);
+            var response = await _llmService.InvokeAsync(messages, model: brainModel, cancellationToken: cancellationToken);
             
-            _logger?.LogDebug("Brain decision: {length} chars", response.Content.Length);
+            _logger?.LogDebug("Brain decision: {length} chars using model {model}", response.Content.Length, brainModel);
             
             // Convert OllamaChatMessage to Models.ChatMessage
             return new Models.ChatMessage 
@@ -367,6 +380,7 @@ Respond concisely with your decision and reasoning.";
     /// <summary>
     /// Step 2: Execute Supervisor Tools: Research, refinement, reflection based on brain decision.
     /// Handles tool routing and parallel execution.
+    /// Uses the SupervisorToolsModel for tool coordination.
     /// Maps to Python lines 750-850
     /// </summary>
     public async Task SupervisorToolsAsync(
@@ -421,6 +435,7 @@ Respond concisely with your decision and reasoning.";
     /// <summary>
     /// Evaluate current draft quality using LLM.
     /// Scores quality on 0-10 scale across multiple dimensions.
+    /// Uses the QualityEvaluatorModel for assessment.
     /// Maps to Python lines 900-950
     /// </summary>
     public async Task<float> EvaluateDraftQualityAsync(
@@ -476,7 +491,7 @@ Respond concisely with your decision and reasoning.";
     }
 
     /// <summary>
-    /// Get LLM-based quality assessment.
+    /// Get LLM-based quality assessment using the QualityEvaluatorModel.
     /// </summary>
     private async Task<float> GetLLMQualityScoreAsync(
         SupervisorState state,
@@ -501,11 +516,13 @@ On a scale of 0-10, rate the research quality considering:
 
 Respond with ONLY a number between 0 and 10.";
 
+            var evaluatorModel = _modelConfig.GetModelForFunction(WorkflowFunction.QualityEvaluator);
             var response = await _llmService.InvokeAsync(
                 new List<OllamaChatMessage>
                 {
                     new() { Role = "system", Content = evaluationPrompt }
                 },
+                model: evaluatorModel,
                 cancellationToken: cancellationToken
             );
 
@@ -513,6 +530,7 @@ Respond with ONLY a number between 0 and 10.";
             var content = response.Content.Trim();
             if (float.TryParse(content.First(c => char.IsDigit(c) || c == '.').ToString(), out float score))
             {
+                _logger?.LogDebug("LLM quality score: {score} using model {model}", score, evaluatorModel);
                 return Math.Clamp(score, 0, 10);
             }
 
@@ -528,6 +546,7 @@ Respond with ONLY a number between 0 and 10.";
     /// <summary>
     /// Run red team critique: Have LLM critique the draft as an adversary.
     /// Identifies weaknesses and areas for improvement.
+    /// Uses the RedTeamModel for critique.
     /// Maps to Python lines 950-1000
     /// </summary>
     public async Task<CritiqueState?> RunRedTeamAsync(
@@ -554,23 +573,25 @@ If the draft is solid with no major issues, respond with: PASS
 
 Otherwise, provide specific, actionable critique.";
 
+            var redTeamModel = _modelConfig.GetModelForFunction(WorkflowFunction.RedTeam);
             var response = await _llmService.InvokeAsync(
                 new List<OllamaChatMessage>
                 {
                     new() { Role = "system", Content = redTeamPrompt }
                 },
+                model: redTeamModel,
                 cancellationToken: cancellationToken
             );
 
             var content = response.Content ?? "";
             if (content.Contains("PASS", StringComparison.OrdinalIgnoreCase) && content.Length < 30)
             {
-                _logger?.LogDebug("RedTeam: PASS - no issues found");
+                _logger?.LogDebug("RedTeam: PASS - no issues found using model {model}", redTeamModel);
                 return null; // No critique needed
             }
 
             var critique = StateFactory.CreateCritique("Red Team", content, severity: 8);
-            _logger?.LogInformation("RedTeam: critique generated");
+            _logger?.LogInformation("RedTeam: critique generated using model {model}", redTeamModel);
             return critique;
         }
         catch (Exception ex)
@@ -583,6 +604,7 @@ Otherwise, provide specific, actionable critique.";
     /// <summary>
     /// Context Pruner: Extract facts from notes and deduplicate.
     /// Populates knowledge base with verified findings.
+    /// Uses the ContextPrunerModel for fact extraction.
     /// Maps to Python lines 1000-1050
     /// </summary>
     public async Task ContextPrunerAsync(
@@ -610,18 +632,20 @@ Format each fact as: [FACT] claim | source | confidence
 
 If you identify no new facts, respond with: NO_NEW_FACTS";
 
+            var prunerModel = _modelConfig.GetModelForFunction(WorkflowFunction.ContextPruner);
             var response = await _llmService.InvokeAsync(
                 new List<OllamaChatMessage>
                 {
                     new() { Role = "system", Content = pruningPrompt }
                 },
+                model: prunerModel,
                 cancellationToken: cancellationToken
             );
 
             var content = response.Content ?? "";
             if (content.Contains("NO_NEW_FACTS", StringComparison.OrdinalIgnoreCase))
             {
-                _logger?.LogDebug("ContextPruner: no new facts extracted");
+                _logger?.LogDebug("ContextPruner: no new facts extracted using model {model}", prunerModel);
                 return;
             }
 
@@ -657,7 +681,7 @@ If you identify no new facts, respond with: NO_NEW_FACTS";
             // Clear processed notes
             state.RawNotes.Clear();
 
-            _logger?.LogInformation("ContextPruner: {count} new facts added", newFactCount);
+            _logger?.LogInformation("ContextPruner: {count} new facts added using model {model}", newFactCount, prunerModel);
         }
         catch (Exception ex)
         {
