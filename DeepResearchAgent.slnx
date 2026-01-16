@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="crawl4ai-service/Dockerfile" />
+    <File Path="crawl4ai-service/requirements.txt" />
+    <File Path="crawl4ai-service/server.py" />
+    <File Path="searxng/settings.yml" />
+  </Folder>
+  <Project Path="DeepResearchAgent.Tests/DeepResearchAgent.Tests.csproj" />
+  <Project Path="DeepResearchAgent/DeepResearchAgent.csproj" />
+</Solution>

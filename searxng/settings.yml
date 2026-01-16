@@ -1,0 +1,73 @@
+# SearXNG Configuration for Deep Research Agent
+# See https://docs.searxng.org/admin/settings/index.html for full documentation
+
+general:
+  debug: false
+  instance_name: "Deep Research SearXNG"
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "changeme_generate_your_own_secret_key"
+  limiter: false
+  image_proxy: false
+  http_protocol_version: "1.1"
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  query_in_title: true
+
+# Enable popular search engines
+engines:
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+    
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+    
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+    language: en
+    
+  - name: reddit
+    engine: reddit
+    shortcut: re
+    disabled: false
+    
+  - name: arxiv
+    engine: arxiv
+    shortcut: arx
+    disabled: false
+    
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+    
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: so
+    disabled: false
+
+enabled_plugins: []
+
+doi_resolvers:
+  oadoi.org: 'https://oadoi.org/'
+  doi.org: 'https://doi.org/'
+
+default_doi_resolver: 'oadoi.org'

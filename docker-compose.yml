@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Main .NET Deep Research Agent
+  deep-research-agent:
+    build:
+      context: ./DeepResearchAgent
+      dockerfile: Dockerfile
+    container_name: deep-research-agent
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Ollama__BaseUrl=http://ollama:11434
+      - Ollama__DefaultModel=mistral
+      - Crawl4AI__BaseUrl=http://crawl4ai:8000
+    depends_on:
+      - ollama
+      - crawl4ai
+    networks:
+      - research-network
+    restart: unless-stopped
+
+  # Ollama LLM Service (local GPU/CPU inference)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-service
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - research-network
+    restart: unless-stopped
+    # Uncomment for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Crawl4AI Python Service for web scraping
+  crawl4ai:
+    build:
+      context: ./crawl4ai-service
+      dockerfile: Dockerfile
+    container_name: crawl4ai-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - research-network
+    restart: unless-stopped
+
+  # SearXNG - Privacy-respecting metasearch engine
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng-service
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    networks:
+      - research-network
+    restart: unless-stopped
+
+networks:
+  research-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    driver: local
