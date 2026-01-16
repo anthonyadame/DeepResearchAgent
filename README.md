@@ -322,6 +322,15 @@ For issues, questions, or suggestions:
 - Check usage examples in `ModelConfigurationUsageExamples.cs`
 - See configuration examples in `WorkflowModelConfigurationTests.cs`
 
+## 📖 Citation
+
+This project is inspired by and based on the research and concepts presented in:
+
+**Khan, Fareed.** "Building a Human-Level Deep Research Agentic System using the Time Test Diffusion Algorithm: ReAct Loops, Denoising, Parallel Research and more." *Level Up Coding* (Medium), 2024.  
+🔗 [Read the article](https://levelup.gitconnected.com/building-a-human-level-deep-research-agentic-system-using-the-time-test-diffusion-algorithm-587ed3c225a0)  
+👤 [Author Profile](https://medium.com/@fareedkhandev)
+
+
 ---
 
 **Made with ❤️ for researchers and developers**
