@@ -3,7 +3,8 @@ FROM ubuntu:24.04
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_VERSION=8.0 \
-    ASPNETCORE_URLS=http://+:5000
+    ASPNETCORE_URLS=http://+:5000 \
+    LIGHTNING_SERVER_URL=http://lightning-server:9090
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
@@ -11,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     apt-transport-https \
     software-properties-common \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install .NET 8 SDK
@@ -34,7 +36,15 @@ COPY . ./
 # Build application
 RUN dotnet publish -c Release -o out
 
-# Expose port
+# Create non-root user for security
+RUN useradd -m -u 1000 dotnetuser && chown -R dotnetuser:dotnetuser /app
+USER dotnetuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Expose ports
 EXPOSE 5000
 
 # Set entrypoint

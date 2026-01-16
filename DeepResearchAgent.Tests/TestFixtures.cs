@@ -1,5 +1,6 @@
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -83,13 +84,13 @@ public class TestFixtures
     {
         var mockStore = new Mock<LightningStore>(null);
 
-        var savedFacts = new List<FactState>();
+        var savedFacts = new List<Models.FactState>();
 
         mockStore
             .Setup(s => s.SaveFactsAsync(
-                It.IsAny<IEnumerable<FactState>>(),
+                It.IsAny<IEnumerable<Models.FactState>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<IEnumerable<FactState>, CancellationToken>((facts, _) =>
+            .Callback<IEnumerable<Models.FactState>, CancellationToken>((facts, _) =>
             {
                 savedFacts.AddRange(facts);
             })
@@ -100,6 +101,51 @@ public class TestFixtures
             .ReturnsAsync(savedFacts);
 
         return mockStore.Object;
+    }
+
+    /// <summary>
+    /// Create a mock Lightning state service.
+    /// </summary>
+    public static ILightningStateService CreateMockLightningStateService()
+    {
+        var mockService = new Mock<ILightningStateService>();
+        var states = new Dictionary<string, ResearchStateModel>();
+
+        mockService
+            .Setup(s => s.SetResearchStateAsync(
+                It.IsAny<string>(),
+                It.IsAny<ResearchStateModel>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, ResearchStateModel, CancellationToken>((id, state, _) =>
+            {
+                states[id] = state;
+            })
+            .Returns(Task.CompletedTask);
+
+        mockService
+            .Setup(s => s.GetResearchStateAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string id, CancellationToken _) =>
+            {
+                return states.ContainsKey(id)
+                    ? states[id]
+                    : throw new InvalidOperationException($"Research state not found: {id}");
+            });
+
+        mockService
+            .Setup(s => s.UpdateResearchProgressAsync(
+                It.IsAny<string>(),
+                It.IsAny<int>(),
+                It.IsAny<double>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        mockService
+            .Setup(s => s.GetMetrics())
+            .Returns(new StateManagementMetrics());
+
+        return mockService.Object;
     }
 
     /// <summary>
@@ -152,9 +198,10 @@ public class TestFixtures
         var llm = CreateMockOllamaService();
         var search = CreateMockSearchService();
         var store = CreateMockLightningStore();
+        var stateService = CreateMockLightningStateService();
         var logger = CreateMockLogger<ResearcherWorkflow>();
 
-        var researcher = new ResearcherWorkflow(search, llm, store, logger);
+        var researcher = new ResearcherWorkflow(stateService, search, llm, store, logger);
 
         return (researcher, llm, store);
     }
@@ -168,11 +215,12 @@ public class TestFixtures
         var llm = CreateMockOllamaService();
         var search = CreateMockSearchService();
         var store = CreateMockLightningStore();
+        var stateService = CreateMockLightningStateService();
         var logger = CreateMockLogger<SupervisorWorkflow>();
 
         var (researcher, _, _) = CreateMockResearcherWorkflow();
 
-        var supervisor = new SupervisorWorkflow(researcher, llm, store, logger);
+        var supervisor = new SupervisorWorkflow(stateService, researcher, llm, store, logger);
 
         return (supervisor, llm, store);
     }
@@ -184,11 +232,12 @@ public class TestFixtures
         CreateMockMasterWorkflow()
     {
         var llm = CreateMockOllamaService();
+        var stateService = CreateMockLightningStateService();
         var logger = CreateMockLogger<MasterWorkflow>();
 
         var (supervisor, _, _) = CreateMockSupervisorWorkflow();
 
-        var master = new MasterWorkflow(supervisor, llm, logger);
+        var master = new MasterWorkflow(stateService, supervisor, llm, logger);
 
         return (master, llm);
     }
@@ -196,9 +245,9 @@ public class TestFixtures
     /// <summary>
     /// Create test facts for assertion.
     /// </summary>
-    public static List<FactState> CreateTestFacts(int count = 5)
+    public static List<Models.FactState> CreateTestFacts(int count = 5)
     {
-        var facts = new List<FactState>();
+        var facts = new List<Models.FactState>();
         for (int i = 0; i < count; i++)
         {
             facts.Add(StateFactory.CreateFact(
@@ -314,7 +363,7 @@ public static class WorkflowAssertions
     }
 
     public static void AssertFactsExtracted(
-        IEnumerable<FactState> facts,
+        IEnumerable<Models.FactState> facts,
         int minimumCount = 1)
     {
         Assert.NotNull(facts);
@@ -340,7 +389,7 @@ public static class WorkflowAssertions
             var lastTwo = history.TakeLast(2).ToList();
             // Quality should be non-negative
             Assert.True(lastTwo[0].Score >= 0);
-            Assert.True(lastTwo[1].Score >= 0);
+            Assert.True(lastTwo[1]. Score >= 0);
         }
     }
 

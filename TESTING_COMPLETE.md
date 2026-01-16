@@ -375,6 +375,25 @@ dotnet test DeepResearchAgent.Tests --logger "console;verbosity=detailed"
 dotnet test DeepResearchAgent.Tests --collect:"XPlat Code Coverage"
 ```
 
+# Run all unit tests
+dotnet test DeepResearchAgent.Tests --configuration Release
+
+# Run only Agent-Lightning tests
+dotnet test DeepResearchAgent.Tests --filter "AgentLightning"
+
+# Run VERL tests
+dotnet test DeepResearchAgent.Tests --filter "VERL"
+
+# Run integration tests (requires Docker)
+dotnet test DeepResearchAgent.Tests --filter "Integration"
+
+# Run with verbose output
+dotnet test DeepResearchAgent.Tests --verbosity detailed
+
+# Generate coverage report
+dotnet test DeepResearchAgent.Tests /p:CollectCoverage=true /p:CoverageFormat=opencover
+```
+
 ---
 
 ## 📋 Test Patterns Used

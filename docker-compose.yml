@@ -1,8 +1,89 @@
 version: '3.8'
 
 services:
-  # Main .NET Deep Research Agent
-  deep-research-agent:
+  # Ollama - LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: deep-research-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    networks:
+      - deep-research-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # SearXNG - Meta Search Engine
+  searxng:
+    image: searxng/searxng:latest
+    container_name: deep-research-searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      BIND_ADDRESS: 0.0.0.0:8080
+    networks:
+      - deep-research-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Crawl4AI - Web Scraping Service
+  crawl4ai:
+    image: crawl4ai/crawl4ai:latest
+    container_name: deep-research-crawl4ai
+    ports:
+      - "11235:11235"
+    environment:
+      API_PORT: 11235
+      LOG_LEVEL: INFO
+    networks:
+      - deep-research-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Lightning Server - Agent Orchestration with APO & VERL
+  lightning-server:
+    image: mcr.microsoft.com/agent-lightning:latest
+    container_name: deep-research-lightning-server
+    ports:
+      - "9090:9090"
+    environment:
+      LIGHTNING_PORT: 9090
+      APO_ENABLED: "true"
+      VERL_ENABLED: "true"
+      APO_STRATEGY: "balanced"
+      APO_MAX_TASKS: 10
+      APO_TASK_TIMEOUT: 300
+      VERL_TRACKING_ENABLED: "true"
+      VERL_CONFIDENCE_THRESHOLD: 0.7
+      LOG_LEVEL: INFO
+    networks:
+      - deep-research-network
+    depends_on:
+      - ollama
+      - searxng
+      - crawl4ai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Deep Research Agent - Main Orchestrator
+  research-agent:
     build:
       context: ./DeepResearchAgent
       dockerfile: Dockerfile
@@ -10,69 +91,31 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - Ollama__BaseUrl=http://ollama:11434
-      - Ollama__DefaultModel=mistral
-      - Crawl4AI__BaseUrl=http://crawl4ai:8000
+      LIGHTNING_SERVER_URL: http://lightning-server:9090
+      OLLAMA_ENDPOINT: http://ollama:11434
+      SEARXNG_ENDPOINT: http://searxng:8080
+      CRAWL4AI_ENDPOINT: http://crawl4ai:11235
+    networks:
+      - deep-research-network
     depends_on:
-      - ollama
-      - crawl4ai
-    networks:
-      - research-network
-    restart: unless-stopped
-
-  # Ollama LLM Service (local GPU/CPU inference)
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama-service
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - research-network
-    restart: unless-stopped
-    # Uncomment for GPU support
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-
-  # Crawl4AI Python Service for web scraping
-  crawl4ai:
-    build:
-      context: ./crawl4ai-service
-      dockerfile: Dockerfile
-    container_name: crawl4ai-service
-    ports:
-      - "8000:8000"
-    environment:
-      - PYTHONUNBUFFERED=1
-    networks:
-      - research-network
-    restart: unless-stopped
-
-  # SearXNG - Privacy-respecting metasearch engine
-  searxng:
-    image: searxng/searxng:latest
-    container_name: searxng-service
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./searxng:/etc/searxng:rw
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
-    networks:
-      - research-network
-    restart: unless-stopped
+      ollama:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+      crawl4ai:
+        condition: service_healthy
+      lightning-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
-  research-network:
+  deep-research-network:
     driver: bridge
 
 volumes:
-  ollama-data:
+  ollama_data:
     driver: local

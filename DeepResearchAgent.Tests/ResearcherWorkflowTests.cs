@@ -49,7 +49,7 @@ public class ResearcherWorkflowTests
         var factList = facts.ToList();
         if (factList.Count > 0)
         {
-            WorkflowAssertions.AssertFactsExtracted(factList, 1);
+            WorkflowAssertions.AssertFactsExtracted(factList.AsEnumerable(), 1);
         }
     }
 
@@ -409,7 +409,7 @@ public class ResearcherWorkflowTests
 
         // Act & Assert
         var ex = await Record.ExceptionAsync(() =>
-            _workflow.ResearchAsync("topic", cts.Token));
+            _workflow.ResearchAsync("topic", null, cts.Token));
         // Cancellation is acceptable
     }
 

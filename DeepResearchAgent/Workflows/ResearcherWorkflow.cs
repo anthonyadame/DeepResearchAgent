@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Runtime.CompilerServices;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
 using Microsoft.Extensions.Logging;
 
@@ -17,21 +18,24 @@ namespace DeepResearchAgent.Workflows;
 /// 3. Research Compression: Synthesize findings
 /// 4. Fact Persistence: Store in knowledge base
 /// 
-/// Maps to Python lines 390-470 (ReAct loop pattern)
+/// Maps to Python lines 390-470 (Re Act loop pattern)
 /// </summary>
 public class ResearcherWorkflow
 {
+    private readonly ILightningStateService _stateService;
     private readonly SearCrawl4AIService _searchService;
     private readonly OllamaService _llmService;
     private readonly LightningStore _store;
     private readonly ILogger<ResearcherWorkflow>? _logger;
 
     public ResearcherWorkflow(
+        ILightningStateService stateService,
         SearCrawl4AIService searchService,
         OllamaService llmService,
         LightningStore store,
         ILogger<ResearcherWorkflow>? logger = null)
     {
+        _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -42,14 +46,27 @@ public class ResearcherWorkflow
     /// Execute focused research on a topic using ReAct loop.
     /// Returns list of extracted facts.
     /// </summary>
-    public async Task<IReadOnlyList<FactState>> ResearchAsync(
+    public async Task<IReadOnlyList<Models.FactState>> ResearchAsync(
         string topic,
+        string? researchId = null,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("ResearcherWorkflow starting for topic: {topic}", topic);
+        var localResearchId = researchId ?? Guid.NewGuid().ToString();
+        _logger?.LogInformation("ResearcherWorkflow starting for topic: {topic}, Research ID: {researchId}", topic, localResearchId);
 
         try
         {
+            // Initialize research state
+            var researchState = new ResearchStateModel
+            {
+                ResearchId = localResearchId,
+                Query = topic,
+                Status = ResearchStatus.InProgress,
+                StartedAt = DateTime.UtcNow
+            };
+
+            await _stateService.SetResearchStateAsync(localResearchId, researchState, cancellationToken);
+
             var researcherState = CreateResearcherState(topic);
             
             // Execute ReAct loop: LLM → Tools → Loop
@@ -71,6 +88,17 @@ public class ResearcherWorkflow
 
                 // Step 3: Execute tools (search, scrape, think)
                 await ToolExecutionAsync(researcherState, llmResponse, cancellationToken);
+
+                // Update progress
+                var progressQuality = CalculateResearchQuality(researcherState);
+                await _stateService.UpdateResearchProgressAsync(
+                    localResearchId,
+                    iteration + 1,
+                    progressQuality,
+                    cancellationToken
+                );
+
+                _logger?.LogDebug("Research iteration {iter} completed, quality: {quality:P}", iteration + 1, progressQuality);
             }
 
             // Step 4: Compress research into coherent summary
@@ -81,9 +109,14 @@ public class ResearcherWorkflow
             var facts = ExtractFactsFromFindings(compressedFindings);
             if (facts.Count > 0)
             {
-                await _store.SaveFactsAsync(facts, cancellationToken);
+                await _store.SaveFactsAsync(facts.AsEnumerable(), cancellationToken);
                 _logger?.LogInformation("Persisted {count} facts to knowledge base", facts.Count);
             }
+
+            // Update final research state
+            researchState.Status = ResearchStatus.Completed;
+            researchState.CompletedAt = DateTime.UtcNow;
+            await _stateService.SetResearchStateAsync(localResearchId, researchState, cancellationToken);
 
             _logger?.LogInformation("Research complete for topic: {topic} - {count} facts extracted", 
                 topic, facts.Count);
@@ -179,7 +212,7 @@ public class ResearcherWorkflow
             var facts = ExtractFactsFromFindings(compressedFindings);
             if (facts.Count > 0)
             {
-                await _store.SaveFactsAsync(facts, cancellationToken);
+                await _store.SaveFactsAsync(facts.AsEnumerable(), cancellationToken);
                 extractedFacts = facts.Count;
             }
         }
@@ -508,9 +541,9 @@ Write the compressed research summary:";
     /// <summary>
     /// Extract facts from compressed research findings.
     /// </summary>
-    private static List<FactState> ExtractFactsFromFindings(string compressedFindings)
+    private static List<Models.FactState> ExtractFactsFromFindings(string compressedFindings)
     {
-        var facts = new List<FactState>();
+        var facts = new List<Models.FactState>();
 
         if (string.IsNullOrWhiteSpace(compressedFindings))
             return facts;
@@ -566,6 +599,34 @@ Write the compressed research summary:";
         }
 
         return text.Length > 280 ? text[..280] + "..." : text;
+    }
+
+    /// <summary>
+    /// Calculate current research quality based on gathered notes and messages.
+    /// Returns a value between 0 and 1.
+    /// </summary>
+    private static double CalculateResearchQuality(ResearcherState state)
+    {
+        double quality = 0.0;
+
+        // Factor 1: Number of notes gathered (0-0.3)
+        var notesFactor = Math.Min(state.RawNotes.Count / 10.0, 0.3);
+        quality += notesFactor;
+
+        // Factor 2: Number of researcher messages (0-0.3)
+        var messageFactor = Math.Min(state.ResearcherMessages.Count / 5.0, 0.3);
+        quality += messageFactor;
+
+        // Factor 3: Tool call iterations (0-0.2)
+        var iterationFactor = Math.Min(state.ToolCallIterations / 5.0, 0.2);
+        quality += iterationFactor;
+
+        // Factor 4: Length of compressed research (0-0.2)
+        var contentLength = state.CompressedResearch?.Length ?? 0;
+        var contentFactor = Math.Min(contentLength / 5000.0, 0.2);
+        quality += contentFactor;
+
+        return Math.Min(quality, 1.0);  // Cap at 1.0
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
 using Microsoft.Extensions.Logging;
 
@@ -22,6 +23,7 @@ namespace DeepResearchAgent.Workflows;
 /// </summary>
 public class SupervisorWorkflow
 {
+    private readonly ILightningStateService _stateService;
     private readonly ResearcherWorkflow _researcher;
     private readonly OllamaService _llmService;
     private readonly LightningStore? _store;
@@ -29,12 +31,14 @@ public class SupervisorWorkflow
     private readonly StateManager? _stateManager;
 
     public SupervisorWorkflow(
+        ILightningStateService stateService,
         ResearcherWorkflow researcher,
         OllamaService llmService,
         LightningStore? store = null,
         ILogger<SupervisorWorkflow>? logger = null,
         StateManager? stateManager = null)
     {
+        _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _researcher = researcher ?? throw new ArgumentNullException(nameof(researcher));
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _store = store;
@@ -50,15 +54,20 @@ public class SupervisorWorkflow
         string researchBrief,
         string draftReport = "",
         int maxIterations = 5,
+        string? researchId = null,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("SupervisorWorkflow starting - maxIterations: {max}", maxIterations);
+        var supervisionId = Guid.NewGuid().ToString();
+        _logger?.LogInformation("SupervisorWorkflow starting - Supervision ID: {supervisionId}", supervisionId);
 
         try
         {
             var supervisorState = StateFactory.CreateSupervisorState();
             supervisorState.ResearchBrief = researchBrief;
             supervisorState.DraftReport = draftReport ?? $"Initial draft for: {researchBrief}";
+
+            // Track quality progression
+            var qualityScores = new List<double>();
 
             // Execute diffusion loop
             for (int iteration = 0; iteration < maxIterations; iteration++)
@@ -70,7 +79,7 @@ public class SupervisorWorkflow
                 supervisorState.SupervisorMessages.Add(brainDecision);
 
                 // Step 2: Execute Tools based on brain decision
-                await SupervisorToolsAsync(supervisorState, brainDecision, cancellationToken);
+                await SupervisorToolsAsync(supervisorState, brainDecision, null, cancellationToken);
 
                 // Step 3: Quality Evaluation
                 var quality = await EvaluateDraftQualityAsync(supervisorState, cancellationToken);
@@ -78,6 +87,18 @@ public class SupervisorWorkflow
                     StateFactory.CreateQualityMetric(quality, "Iteration quality", iteration)
                 );
                 supervisorState.ResearchIterations = iteration + 1;
+                qualityScores.Add(quality);
+
+                // Update research state if we have a research ID
+                if (!string.IsNullOrEmpty(researchId))
+                {
+                    await _stateService.UpdateResearchProgressAsync(
+                        researchId,
+                        iteration + 1,
+                        quality / 10.0,  // Normalize to 0-1
+                        cancellationToken
+                    );
+                }
 
                 _logger?.LogInformation("Iteration {iter} quality: {quality:F1}/10", iteration + 1, quality);
 
@@ -109,7 +130,7 @@ public class SupervisorWorkflow
                 supervisorState.QualityHistory.LastOrDefault()?.Score ?? 0);
 
             // Synthesize findings
-            var summary = SummarizeFacts(supervisorState.ResearchBrief, supervisorState.KnowledgeBase);
+            var summary = SummarizeFacts(supervisorState.ResearchBrief, supervisorState.KnowledgeBase.AsReadOnly());
             return summary;
         }
         catch (Exception ex)
@@ -141,7 +162,7 @@ public class SupervisorWorkflow
                 input.SupervisorMessages.Add(brainDecision);
 
                 // Step 2: Execute Tools based on brain decision
-                await SupervisorToolsAsync(input, brainDecision, cancellationToken);
+                await SupervisorToolsAsync(input, brainDecision, null, cancellationToken);
 
                 // Step 3: Quality Evaluation
                 var quality = await EvaluateDraftQualityAsync(input, cancellationToken);
@@ -212,7 +233,7 @@ public class SupervisorWorkflow
 
             // Tool execution
             yield return "[supervisor] executing tools...";
-            await SupervisorToolsAsync(supervisorState, brainDecision, cancellationToken);
+            await SupervisorToolsAsync(supervisorState, brainDecision, null, cancellationToken);
             yield return $"[supervisor] {supervisorState.KnowledgeBase.Count} facts in knowledge base";
 
             // Quality evaluation
@@ -351,7 +372,8 @@ Respond concisely with your decision and reasoning.";
     public async Task SupervisorToolsAsync(
         SupervisorState state,
         Models.ChatMessage brainDecision,
-        CancellationToken cancellationToken)
+        string? researchId = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -367,7 +389,7 @@ Respond concisely with your decision and reasoning.";
                 
                 var researchTasks = researchTopics
                     .Take(3) // Max 3 concurrent researchers
-                    .Select(topic => _researcher.ResearchAsync(topic, cancellationToken))
+                    .Select(topic => _researcher.ResearchAsync(topic, researchId, cancellationToken))
                     .ToList();
 
                 var results = await Task.WhenAll(researchTasks);
@@ -669,7 +691,7 @@ If you identify no new facts, respond with: NO_NEW_FACTS";
     /// <summary>
     /// Summarize facts into a coherent research summary.
     /// </summary>
-    private static string SummarizeFacts(string topic, IReadOnlyList<FactState> facts)
+    private static string SummarizeFacts(string topic, IReadOnlyList<Models.FactState> facts)
     {
         if (facts.Count == 0)
         {

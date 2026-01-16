@@ -3,25 +3,52 @@ using DeepResearchAgent.Services;
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Workflows;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 Console.WriteLine("=== Deep Research Agent - C# Implementation ===");
-Console.WriteLine("Multi-agent research system with diffusion-based refinement\n");
+Console.WriteLine("Multi-agent research system with diffusion-based refinement");
+Console.WriteLine("Powered by Microsoft Agent-Lightning\n");
+
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables()
+    .Build();
+
+var ollamaBaseUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
+var ollamaDefaultModel = configuration["Ollama:DefaultModel"] ?? "gpt-oss:20b";
+var searxngBaseUrl = configuration["SearXNG:BaseUrl"] ?? "http://localhost:8080";
+var crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:11235";
+var lightningServerUrl = configuration["Lightning:ServerUrl"]
+    ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
+    ?? "http://lightning-server:9090";
 
 // Initialize services
 var services = new ServiceCollection();
 
 // Register core services
 services.AddSingleton<OllamaService>(_ => new OllamaService(
-    baseUrl: "http://localhost:11434",
-    defaultModel: "gpt-oss:20b"  // Change to your preferred model
+    baseUrl: ollamaBaseUrl,
+    defaultModel: ollamaDefaultModel
 ));
 services.AddSingleton<HttpClient>();
 services.AddSingleton<SearCrawl4AIService>(sp => new SearCrawl4AIService(
-    sp.GetRequiredService<HttpClient>()
+    sp.GetRequiredService<HttpClient>(),
+    searxngBaseUrl,
+    crawl4aiBaseUrl
 ));
 services.AddSingleton<LightningStore>();
+
+// Register Agent-Lightning services
+services.AddSingleton<IAgentLightningService>(sp => new AgentLightningService(
+    sp.GetRequiredService<HttpClient>(),
+    lightningServerUrl
+));
+services.AddSingleton<ILightningVERLService>(sp => new LightningVERLService(
+    sp.GetRequiredService<HttpClient>(),
+    lightningServerUrl
+));
 
 // Register workflows
 services.AddSingleton<ResearcherWorkflow>();
@@ -32,9 +59,12 @@ services.AddSingleton<MasterWorkflow>();
 var serviceProvider = services.BuildServiceProvider();
 
 Console.WriteLine("✓ Services initialized");
-Console.WriteLine("✓ Ollama connection configured (http://localhost:11434)");
-Console.WriteLine("✓ Web search + scraping configured (SearXNG + Crawl4AI)");
-Console.WriteLine("✓ Knowledge persistence configured (LightningStore)\n");
+Console.WriteLine($"✓ Ollama connection configured ({ollamaBaseUrl})");
+Console.WriteLine($"✓ Web search + scraping configured (SearXNG: {searxngBaseUrl}, Crawl4AI: {crawl4aiBaseUrl})");
+Console.WriteLine("✓ Knowledge persistence configured (LightningStore)");
+Console.WriteLine($"✓ Agent-Lightning integration configured ({lightningServerUrl})");
+Console.WriteLine("✓ APO (Automatic Performance Optimization) enabled");
+Console.WriteLine("✓ VERL (Verification and Reasoning Layer) enabled\n");
 
 // Interactive menu loop
 bool running = true;
@@ -46,19 +76,22 @@ while (running)
     switch (choice)
     {
         case "1":
-            await CheckOllamaConnection(serviceProvider);
+            await CheckOllamaConnection(serviceProvider, ollamaBaseUrl);
             break;
         case "2":
-            await CheckSearXNGConnection(serviceProvider);
+            await CheckSearXNGConnection(serviceProvider, searxngBaseUrl);
             break;
         case "3":
-            await CheckCrawl4AIConnection(serviceProvider);
+            await CheckCrawl4AIConnection(serviceProvider, crawl4aiBaseUrl);
             break;
         case "4":
-            await RunWorkflowOrchestration(serviceProvider);
+            await CheckLightningConnection(serviceProvider, lightningServerUrl);
             break;
         case "5":
-            await RunAllHealthChecks(serviceProvider);
+            await RunWorkflowOrchestration(serviceProvider);
+            break;
+        case "6":
+            await RunAllHealthChecks(serviceProvider, ollamaBaseUrl, searxngBaseUrl, crawl4aiBaseUrl, lightningServerUrl);
             break;
         case "0":
             running = false;
@@ -69,7 +102,7 @@ while (running)
             break;
     }
 
-    if (running && choice is "1" or "2" or "3" or "4" or "5")
+    if (running && choice is "1" or "2" or "3" or "4" or "5" or "6")
     {
         Console.WriteLine("\nPress any key to continue...");
         Console.ReadKey();
@@ -80,20 +113,21 @@ while (running)
 static void DisplayMenu()
 {
     Console.WriteLine("\n╔════════════════════════════════════════════════════════╗");
-    Console.WriteLine("║        Deep Research Agent - Main Menu                ║");
+    Console.WriteLine("║     Deep Research Agent - Main Menu (Lightning)       ║");
     Console.WriteLine("╚════════════════════════════════════════════════════════╝");
     Console.WriteLine();
     Console.WriteLine("  [1] 🔍 Check Ollama Connection");
     Console.WriteLine("  [2] 🌐 Check SearXNG Connection");
     Console.WriteLine("  [3] 🕷️  Check Crawl4AI Connection");
-    Console.WriteLine("  [4] ⚙️  Run Scaffolded Workflow Orchestration");
-    Console.WriteLine("  [5] 🏥 Run All Health Checks");
+    Console.WriteLine("  [4] ⚡ Check Agent-Lightning Connection");
+    Console.WriteLine("  [5] ⚙️  Run Scaffolded Workflow Orchestration");
+    Console.WriteLine("  [6] 🏥 Run All Health Checks");
     Console.WriteLine("  [0] 🚪 Exit");
     Console.WriteLine();
     Console.Write("Enter your choice: ");
 }
 
-static async Task CheckOllamaConnection(ServiceProvider serviceProvider)
+static async Task CheckOllamaConnection(ServiceProvider serviceProvider, string ollamaBaseUrl)
 {
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🔍 CHECKING OLLAMA CONNECTION");
@@ -103,7 +137,7 @@ static async Task CheckOllamaConnection(ServiceProvider serviceProvider)
     {
         var ollamaService = serviceProvider.GetRequiredService<OllamaService>();
         
-        Console.WriteLine("➤ Endpoint: http://localhost:11434");
+        Console.WriteLine($"➤ Endpoint: {ollamaBaseUrl}");
         Console.WriteLine("➤ Checking health...");
         
         var isHealthy = await ollamaService.IsHealthyAsync();
@@ -146,7 +180,7 @@ static async Task CheckOllamaConnection(ServiceProvider serviceProvider)
         }
         else
         {
-            Console.WriteLine("❌ Ollama is not accessible at http://localhost:11434");
+            Console.WriteLine($"❌ Ollama is not accessible at {ollamaBaseUrl}");
             Console.WriteLine("\n📝 To start Ollama:");
             Console.WriteLine("   ollama serve");
         }
@@ -157,11 +191,11 @@ static async Task CheckOllamaConnection(ServiceProvider serviceProvider)
         Console.WriteLine("\n📝 Troubleshooting:");
         Console.WriteLine("   1. Start Ollama: ollama serve");
         Console.WriteLine("   2. Pull a model: ollama pull mistral");
-        Console.WriteLine("   3. Verify endpoint: http://localhost:11434");
+        Console.WriteLine($"   3. Verify endpoint: {ollamaBaseUrl}");
     }
 }
 
-static async Task CheckSearXNGConnection(ServiceProvider serviceProvider)
+static async Task CheckSearXNGConnection(ServiceProvider serviceProvider, string searxngBaseUrl)
 {
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🌐 CHECKING SEARXNG CONNECTION");
@@ -170,12 +204,11 @@ static async Task CheckSearXNGConnection(ServiceProvider serviceProvider)
     try
     {
         var httpClient = serviceProvider.GetRequiredService<HttpClient>();
-        var searxngUrl = "http://localhost:8080";
         
-        Console.WriteLine($"➤ Endpoint: {searxngUrl}");
+        Console.WriteLine($"➤ Endpoint: {searxngBaseUrl}");
         Console.WriteLine("➤ Checking health...");
         
-        var response = await httpClient.GetAsync($"{searxngUrl}/healthz");
+        var response = await httpClient.GetAsync($"{searxngBaseUrl}/healthz");
         
         if (response.IsSuccessStatusCode)
         {
@@ -183,7 +216,7 @@ static async Task CheckSearXNGConnection(ServiceProvider serviceProvider)
             
             // Test search
             Console.WriteLine("\n➤ Testing search functionality...");
-            var searchUrl = $"{searxngUrl}/search?q=test&format=json";
+            var searchUrl = $"{searxngBaseUrl}/search?q=test&format=json";
             var searchResponse = await httpClient.GetAsync(searchUrl);
             
             if (searchResponse.IsSuccessStatusCode)
@@ -208,7 +241,7 @@ static async Task CheckSearXNGConnection(ServiceProvider serviceProvider)
         Console.WriteLine("\n📝 Troubleshooting:");
         Console.WriteLine("   1. Start SearXNG: docker-compose up searxng -d");
         Console.WriteLine("   2. Check Docker: docker ps");
-        Console.WriteLine("   3. Verify endpoint: http://localhost:8080");
+        Console.WriteLine($"   3. Verify endpoint: {searxngBaseUrl}");
     }
     catch (Exception ex)
     {
@@ -216,7 +249,7 @@ static async Task CheckSearXNGConnection(ServiceProvider serviceProvider)
     }
 }
 
-static async Task CheckCrawl4AIConnection(ServiceProvider serviceProvider)
+static async Task CheckCrawl4AIConnection(ServiceProvider serviceProvider, string crawl4aiBaseUrl)
 {
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🕷️  CHECKING CRAWL4AI CONNECTION");
@@ -226,7 +259,7 @@ static async Task CheckCrawl4AIConnection(ServiceProvider serviceProvider)
     {
         var crawl4aiService = serviceProvider.GetRequiredService<SearCrawl4AIService>();
         
-        Console.WriteLine("➤ Endpoint: http://localhost:11235");
+        Console.WriteLine($"➤ Endpoint: {crawl4aiBaseUrl}");
         
         Console.WriteLine("✓ Crawl4AI is running and healthy");
             
@@ -258,7 +291,74 @@ static async Task CheckCrawl4AIConnection(ServiceProvider serviceProvider)
         Console.WriteLine("\n📝 Troubleshooting:");
         Console.WriteLine("   1. Start Crawl4AI: docker-compose up crawl4ai -d");
         Console.WriteLine("   2. Check Docker: docker ps");
-        Console.WriteLine("   3. Verify endpoint: http://localhost:11235");
+        Console.WriteLine($"   3. Verify endpoint: {crawl4aiBaseUrl}");
+    }
+}
+
+static async Task CheckLightningConnection(ServiceProvider serviceProvider, string lightningServerUrl)
+{
+    Console.WriteLine("\n" + new string('═', 60));
+    Console.WriteLine("⚡ CHECKING AGENT-LIGHTNING CONNECTION");
+    Console.WriteLine(new string('═', 60));
+
+    try
+    {
+        var lightningService = serviceProvider.GetRequiredService<IAgentLightningService>();
+        
+        Console.WriteLine($"➤ Endpoint: {lightningServerUrl}");
+        Console.WriteLine("➤ Checking health...");
+        
+        var isHealthy = await lightningService.IsHealthyAsync();
+        
+        if (isHealthy)
+        {
+            Console.WriteLine("✓ Agent-Lightning Server is running\n");
+            
+            // Get server info
+            Console.WriteLine("➤ Fetching server information...");
+            var serverInfo = await lightningService.GetServerInfoAsync();
+            
+            Console.WriteLine($"✓ Server Version: {serverInfo.Version}");
+            Console.WriteLine($"✓ APO (Auto Performance Optimization): {(serverInfo.ApoEnabled ? "Enabled" : "Disabled")}");
+            Console.WriteLine($"✓ VERL (Verification and Reasoning Layer): {(serverInfo.VerlEnabled ? "Enabled" : "Disabled")}");
+            Console.WriteLine($"✓ Registered Agents: {serverInfo.RegisteredAgents}");
+            Console.WriteLine($"✓ Active Connections: {serverInfo.ActiveConnections}");
+            
+            // Register this client as an agent
+            Console.WriteLine("\n➤ Registering research agent...");
+            var capabilities = new Dictionary<string, object>
+            {
+                { "research", true },
+                { "synthesis", true },
+                { "verification", true },
+                { "web_search", true },
+                { "content_scraping", true }
+            };
+            
+            var registration = await lightningService.RegisterAgentAsync(
+                "deep-research-agent",
+                "ResearchOrchestrator",
+                capabilities
+            );
+            
+            Console.WriteLine($"✓ Agent registered: {registration.AgentId}");
+            
+            Console.WriteLine("\n✅ AGENT-LIGHTNING CONNECTION: SUCCESS");
+        }
+        else
+        {
+            Console.WriteLine($"❌ Agent-Lightning Server is not accessible at {lightningServerUrl}");
+            Console.WriteLine("\n📝 To start Lightning Server:");
+            Console.WriteLine("   docker-compose up lightning-server -d");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ ERROR: {ex.Message}");
+        Console.WriteLine("\n📝 Troubleshooting:");
+        Console.WriteLine("   1. Start Lightning Server: docker-compose up lightning-server -d");
+        Console.WriteLine("   2. Check Docker: docker ps");
+        Console.WriteLine($"   3. Verify endpoint: {lightningServerUrl}");
     }
 }
 
@@ -281,7 +381,7 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
 
         var masterWorkflow = serviceProvider.GetRequiredService<MasterWorkflow>();
         
-        Console.WriteLine("\n➤ Starting workflow execution...\n");
+        Console.WriteLine("\n➤ Starting workflow execution with Lightning orchestration...\n");
         Console.WriteLine(new string('-', 60));
         
         // Run with streaming updates
@@ -297,26 +397,34 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
     {
         Console.WriteLine($"\n❌ WORKFLOW ERROR: {ex.Message}");
         Console.WriteLine("\n📝 Verify:");
-        Console.WriteLine("   1. All services are running (Ollama, SearXNG, Crawl4AI)");
-        Console.WriteLine("   2. Run health checks first (option 5)");
+        Console.WriteLine("   1. All services are running (Ollama, SearXNG, Crawl4AI, Lightning)");
+        Console.WriteLine("   2. Run health checks first (option 6)");
         Console.WriteLine("\nStack trace:");
         Console.WriteLine(ex.StackTrace);
     }
 }
 
-static async Task RunAllHealthChecks(ServiceProvider serviceProvider)
+static async Task RunAllHealthChecks(
+    ServiceProvider serviceProvider,
+    string ollamaBaseUrl,
+    string searxngBaseUrl,
+    string crawl4aiBaseUrl,
+    string lightningServerUrl)
 {
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🏥 RUNNING ALL HEALTH CHECKS");
     Console.WriteLine(new string('═', 60));
 
-    await CheckOllamaConnection(serviceProvider);
+    await CheckOllamaConnection(serviceProvider, ollamaBaseUrl);
     Console.WriteLine();
     
-    await CheckSearXNGConnection(serviceProvider);
+    await CheckSearXNGConnection(serviceProvider, searxngBaseUrl);
     Console.WriteLine();
     
-    await CheckCrawl4AIConnection(serviceProvider);
+    await CheckCrawl4AIConnection(serviceProvider, crawl4aiBaseUrl);
+    Console.WriteLine();
+    
+    await CheckLightningConnection(serviceProvider, lightningServerUrl);
     
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🏥 HEALTH CHECK SUMMARY COMPLETE");

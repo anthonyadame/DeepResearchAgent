@@ -126,7 +126,7 @@ public class ErrorResilienceTests
 
         // Act
         var ex = await Record.ExceptionAsync(() =>
-            researcher.ResearchAsync("topic", cts.Token));
+            researcher.ResearchAsync("topic", null, cts.Token));
 
         // Assert
         // Cancellation exception or timeout acceptable
@@ -274,6 +274,7 @@ public class ErrorResilienceTests
 
         // Act
         var facts = await (new ResearcherWorkflow(
+            TestFixtures.CreateMockLightningStateService(),
             TestFixtures.CreateMockSearchService(),
             TestFixtures.CreateMockOllamaService(),
             TestFixtures.CreateMockLightningStore()

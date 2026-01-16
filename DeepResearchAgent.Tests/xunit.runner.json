@@ -1,0 +1,7 @@
+{
+  "diagnosticMessages": true,
+  "methodDisplay": "method",
+  "shadowCopy": false,
+  "appDomain": "denied",
+  "parallelizeTestCollections": false
+}
