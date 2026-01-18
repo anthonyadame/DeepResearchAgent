@@ -61,6 +61,11 @@
     <File Path="crawl4ai-service/Dockerfile" />
     <File Path="crawl4ai-service/requirements.txt" />
     <File Path="crawl4ai-service/server.py" />
+    <File Path="docker-compose.test.yml" />
+    <File Path="docker-compose.yml" />
+    <File Path="ini .editorconfig" />
+    <File Path="LICENSE.txt" />
+    <File Path="README.md" />
     <File Path="searxng/settings.yml" />
   </Folder>
   <Project Path="DeepResearchAgent.Api/DeepResearchAgent.Api.csproj" />

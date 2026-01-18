@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DeepResearchAgent.Services;
 
@@ -233,7 +234,8 @@ public class OllamaService
             var result = JsonSerializer.Deserialize<T>(responseContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
-                WriteIndented = false
+                WriteIndented = false,
+                Converters = { new JsonStringEnumConverter() }
             });
 
             if (result == null)

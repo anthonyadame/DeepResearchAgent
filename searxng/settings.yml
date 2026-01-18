@@ -1,12 +1,14 @@
 # SearXNG Configuration for Deep Research Agent
 # See https://docs.searxng.org/admin/settings/index.html for full documentation
-
+# see https://docs.searxng.org/admin/settings/settings.html#settings-use-default-settings
+use_default_settings: true
 general:
   debug: false
   instance_name: "Deep Research SearXNG"
   contact_url: false
   enable_metrics: false
-
+  limiter: false  # enable this when running the instance for a public usage on the internet
+  image_proxy: true
 search:
   safe_search: 0
   autocomplete: ""
@@ -16,7 +18,8 @@ search:
     - json
 
 server:
-  secret_key: "changeme_generate_your_own_secret_key"
+  # base_url is defined in the SEARXNG_BASE_URL environment variable, see .env and docker-compose.yml
+  secret_key: "ultrasecretkey"  # change this!
   limiter: false
   image_proxy: false
   http_protocol_version: "1.1"
@@ -71,3 +74,5 @@ doi_resolvers:
   doi.org: 'https://doi.org/'
 
 default_doi_resolver: 'oadoi.org'
+redis:
+  url: redis://redis:6379/0

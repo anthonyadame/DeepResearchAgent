@@ -287,8 +287,7 @@ public class MasterWorkflow
             _logger?.LogDebug("LLM clarification response: {length} chars", responseText.Length);
 
             // Simple heuristic: if response suggests clarification, ask for it
-            if (responseText.Contains("clarif", StringComparison.OrdinalIgnoreCase) ||
-                responseText.Contains("need", StringComparison.OrdinalIgnoreCase))
+            if (responseText.Contains("\"need_clarification\": true", StringComparison.OrdinalIgnoreCase))                
             {
                 return (true, responseText);
             }

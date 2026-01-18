@@ -26,7 +26,7 @@ public class AgentLightningService : IAgentLightningService
     private readonly string _clientId;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    public AgentLightningService(HttpClient httpClient, string lightningServerUrl = "http://lightning-server:9090", string? clientId = null)
+    public AgentLightningService(HttpClient httpClient, string lightningServerUrl = "http://localhost:9090", string? clientId = null)
     {
         _httpClient = httpClient;
         _lightningServerUrl = lightningServerUrl;
@@ -35,7 +35,8 @@ public class AgentLightningService : IAgentLightningService
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Converters = { new JsonStringEnumConverter() }
         };
     }
 
@@ -107,12 +108,16 @@ public class AgentLightningService : IAgentLightningService
             task.SubmittedAt = DateTime.UtcNow;
             task.Status = TaskStatus.Submitted;
 
-            var response = await _httpClient.PostAsJsonAsync(
-                $"{_lightningServerUrl}/api/tasks/submit",
-                new { agentId, task },
-                _jsonOptions
+            var requesturi = $"{_lightningServerUrl}/api/tasks/submit";
+            var requestBody = new { agentId, task };
+            var requestContent = JsonSerializer.Serialize(requestBody, _jsonOptions);
+            var stringcontent = new StringContent(requestContent, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(
+                requesturi, 
+                stringcontent
             );
-            
+
             response.EnsureSuccessStatusCode();
             
             var content = await response.Content.ReadAsStringAsync();

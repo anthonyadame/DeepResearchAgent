@@ -19,27 +19,86 @@ services:
       timeout: 10s
       retries: 3
 
-  # SearXNG - Meta Search Engine
-  searxng:
-    image: searxng/searxng:latest
-    container_name: deep-research-searxng
-    ports:
-      - "8080:8080"
+  caddy:
+    container_name: caddy
+    image: docker.io/library/caddy:2-alpine
+    network_mode: host
+    restart: unless-stopped
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data:rw
+      - caddy-config:/config:rw
     environment:
-      BIND_ADDRESS: 0.0.0.0:8080
+      - SEARXNG_HOSTNAME=${SEARXNG_HOSTNAME:-http://localhost}
+      - SEARXNG_TLS=${LETSENCRYPT_EMAIL:-internal}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+  redis:
+    container_name: redis
+    image: docker.io/valkey/valkey:8-alpine
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: unless-stopped
     networks:
       - deep-research-network
+    volumes:
+      - valkey-data2:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+
+  searxng:
+    container_name: deep-research-searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    networks:
+      - deep-research-network
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-data:/var/cache/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=https://${SEARXNG_HOSTNAME:-localhost}/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+
+  # SearXNG - Meta Search Engine
+  # searxng:
+  #   image: searxng/searxng:latest
+  #   container_name: deep-research-searxng
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+  #   environment:
+  #     BIND_ADDRESS: 0.0.0.0:8080
+  #   networks:
+  #     - deep-research-network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
   # Crawl4AI - Web Scraping Service
   crawl4ai:
-    image: crawl4ai/crawl4ai:latest
+    image: unclecode/crawl4ai:latest
     container_name: deep-research-crawl4ai
     ports:
       - "11235:11235"
@@ -56,7 +115,10 @@ services:
 
   # Lightning Server - Agent Orchestration with APO & VERL
   lightning-server:
-    image: mcr.microsoft.com/agent-lightning:latest
+    build:
+      context: ./lightning-server
+      dockerfile: Dockerfile
+      target: base
     container_name: deep-research-lightning-server
     ports:
       - "9090:9090"
@@ -72,10 +134,6 @@ services:
       LOG_LEVEL: INFO
     networks:
       - deep-research-network
-    depends_on:
-      - ollama
-      - searxng
-      - crawl4ai
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s
@@ -83,39 +141,45 @@ services:
       retries: 3
 
   # Deep Research Agent - Main Orchestrator
-  research-agent:
-    build:
-      context: ./DeepResearchAgent
-      dockerfile: Dockerfile
-    container_name: deep-research-agent
-    ports:
-      - "5000:5000"
-    environment:
-      LIGHTNING_SERVER_URL: http://lightning-server:9090
-      OLLAMA_ENDPOINT: http://ollama:11434
-      SEARXNG_ENDPOINT: http://searxng:8080
-      CRAWL4AI_ENDPOINT: http://crawl4ai:11235
-    networks:
-      - deep-research-network
-    depends_on:
-      ollama:
-        condition: service_healthy
-      searxng:
-        condition: service_healthy
-      crawl4ai:
-        condition: service_healthy
-      lightning-server:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # research-agent:
+  #   build:
+  #     context: ./DeepResearchAgent
+  #     dockerfile: Dockerfile
+  #   container_name: deep-research-agent
+  #   ports:
+  #     - "5000:5000"
+  #   environment:
+  #     LIGHTNING_SERVER_URL: http://lightning-server:9090
+  #     OLLAMA_ENDPOINT: http://ollama:11434
+  #     SEARXNG_ENDPOINT: http://searxng:8080
+  #     CRAWL4AI_ENDPOINT: http://crawl4ai:11235
+  #   networks:
+  #     - deep-research-network
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
+  #     searxng:
+  #       condition: service_healthy
+  #     crawl4ai:
+  #       condition: service_healthy
+  #     lightning-server:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
 
 networks:
+  # searxng:
   deep-research-network:
     driver: bridge
 
 volumes:
+  caddy-data:
+  caddy-config:
+  valkey-data2:
+  searxng-data:
   ollama_data:
     driver: local
+   

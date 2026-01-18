@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  lightning-server-test:
+    build:
+      context: ./lightning-server
+      dockerfile: Dockerfile
+      target: base
+    container_name: lightning-server-test
+    ports:
+      - "9091:9090"
+    environment:
+      LIGHTNING_PORT: 9090
+      APO_ENABLED: "true"
+      VERL_ENABLED: "true"
+      LOG_LEVEL: DEBUG
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  test-runner:
+    build:
+      context: ./DeepResearchAgent.Tests
+      dockerfile: Dockerfile.test
+    depends_on:
+      lightning-server-test:
+        condition: service_healthy
+    environment:
+      LIGHTNING_SERVER_URL: http://lightning-server-test:9090
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge

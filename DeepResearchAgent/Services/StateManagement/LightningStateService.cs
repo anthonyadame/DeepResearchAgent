@@ -2,6 +2,7 @@ using DeepResearchAgent.Services;
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DeepResearchAgent.Services.StateManagement;
 
@@ -167,7 +168,11 @@ public class LightningStateService : ILightningStateService
         _cache = cache;
         _metrics = new StateManagementMetrics();
         _locks = new ConcurrentDictionary<string, SemaphoreSlim>();
-        _jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        _jsonOptions = new JsonSerializerOptions 
+        { 
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
     }
 
     #region Agent State Management

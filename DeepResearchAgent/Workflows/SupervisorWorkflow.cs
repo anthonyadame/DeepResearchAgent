@@ -352,7 +352,13 @@ Respond concisely with your decision and reasoning.";
             };
 
             // Add conversation history
-            messages.AddRange(state.SupervisorMessages.Cast<OllamaChatMessage>());
+            messages.AddRange(
+                state.SupervisorMessages.Select(m => new OllamaChatMessage
+                {
+                    Role = m.Role,
+                    Content = m.Content
+                })
+            );
 
             var brainModel = _modelConfig.GetModelForFunction(WorkflowFunction.SupervisorBrain);
             var response = await _llmService.InvokeAsync(messages, model: brainModel, cancellationToken: cancellationToken);
