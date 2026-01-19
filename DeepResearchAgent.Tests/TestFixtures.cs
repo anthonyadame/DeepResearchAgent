@@ -201,7 +201,7 @@ public class TestFixtures
         var stateService = CreateMockLightningStateService();
         var logger = CreateMockLogger<ResearcherWorkflow>();
 
-        var researcher = new ResearcherWorkflow(stateService, search, llm, store, logger);
+        var researcher = new ResearcherWorkflow(stateService, search, llm, store, vectorDb: null, embeddingService: null, logger: logger);
 
         return (researcher, llm, store);
     }

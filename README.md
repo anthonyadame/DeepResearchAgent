@@ -330,6 +330,23 @@ This project is inspired by and based on the research and concepts presented in:
 🔗 [Read the article](https://levelup.gitconnected.com/building-a-human-level-deep-research-agentic-system-using-the-time-test-diffusion-algorithm-587ed3c225a0)  
 👤 [Author Profile](https://medium.com/@fareedkhandev)
 
+## 📚 References
+
+The implementation incorporates techniques and insights from the following Microsoft Research publications:
+
+### LLM Optimization & Reasoning
+
+**Microsoft Research.** "OptiMind: A Small Language Model with Optimization Expertise."  
+🔗 [Read the article](https://www.microsoft.com/en-us/research/blog/optimind-a-small-language-model-with-optimization-expertise/)  
+*Explores optimization techniques for efficient small language models*
+
+**Microsoft Research.** "PromptWizard: The Future of Prompt Optimization Through Feedback-Driven Self-Evolving Prompts."  
+🔗 [Read the article](https://www.microsoft.com/en-us/research/blog/promptwizard-the-future-of-prompt-optimization-through-feedback-driven-self-evolving-prompts/)  
+*Demonstrates prompt optimization and self-improvement mechanisms*
+
+**Microsoft Research.** "New Methods Boost Reasoning in Small and Large Language Models."  
+🔗 [Read the article](https://www.microsoft.com/en-us/research/blog/new-methods-boost-reasoning-in-small-and-large-language-models/)  
+*Presents techniques for enhancing reasoning capabilities across model sizes*
 
 ---
 

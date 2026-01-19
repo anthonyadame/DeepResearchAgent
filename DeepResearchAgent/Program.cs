@@ -2,6 +2,7 @@
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
+using DeepResearchAgent.Services.VectorDatabase;
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.AI;
@@ -20,7 +21,6 @@ var configuration = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
-
 var ollamaBaseUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
 var ollamaDefaultModel = configuration["Ollama:DefaultModel"] ?? "gpt-oss:20b";
 var searxngBaseUrl = configuration["SearXNG:BaseUrl"] ?? "http://localhost:8080";
@@ -28,6 +28,14 @@ var crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:112
 var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
     ?? "http://localhost:9090";
+
+// Vector database configuration
+var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", true);
+var qdrantBaseUrl = configuration["VectorDatabase:Qdrant:BaseUrl"] ?? "http://localhost:6333";
+var qdrantCollectionName = configuration["VectorDatabase:Qdrant:CollectionName"] ?? "research";
+var qdrantVectorDimension = configuration.GetValue("VectorDatabase:Qdrant:VectorDimension", 384);
+var embeddingModel = configuration["VectorDatabase:EmbeddingModel"] ?? "nomic-embed-text";
+var embeddingApiUrl = configuration["VectorDatabase:EmbeddingApiUrl"] ?? ollamaBaseUrl;
 
 // Initialize services
 var services = new ServiceCollection();
@@ -37,7 +45,6 @@ services.AddLogging(logging =>
     logging.AddConsole();
     logging.SetMinimumLevel(LogLevel.Trace);
 });
-
 
 // Register core services
 services.AddMemoryCache();
@@ -52,6 +59,44 @@ services.AddSingleton<SearCrawl4AIService>(sp => new SearCrawl4AIService(
     crawl4aiBaseUrl
 ));
 services.AddSingleton<LightningStore>();
+
+// Register embedding service
+services.AddSingleton<IEmbeddingService>(sp => new OllamaEmbeddingService(
+    sp.GetRequiredService<HttpClient>(),
+    baseUrl: embeddingApiUrl,
+    model: embeddingModel,
+    dimension: qdrantVectorDimension,
+    logger: sp.GetService<Microsoft.Extensions.Logging.ILogger>()
+));
+
+// Register vector database service (Qdrant)
+if (vectorDbEnabled)
+{
+    services.AddSingleton<IVectorDatabaseService>(sp => new QdrantVectorDatabaseService(
+        sp.GetRequiredService<HttpClient>(),
+        new QdrantConfig
+        {
+            BaseUrl = qdrantBaseUrl,
+            CollectionName = qdrantCollectionName,
+            VectorDimension = qdrantVectorDimension
+        },
+        sp.GetRequiredService<IEmbeddingService>(),
+        logger: sp.GetService<Microsoft.Extensions.Logging.ILogger>()
+    ));
+}
+
+// Register vector database factory (for multiple DB support)
+services.AddSingleton<IVectorDatabaseFactory>(sp =>
+{
+    var factory = new VectorDatabaseFactory(sp.GetService<Microsoft.Extensions.Logging.ILogger>());
+    
+    if (vectorDbEnabled && sp.GetService<IVectorDatabaseService>() != null)
+    {
+        factory.RegisterVectorDatabase("qdrant", sp.GetRequiredService<IVectorDatabaseService>());
+    }
+    
+    return factory;
+});
 
 // Register Agent-Lightning services
 services.AddSingleton<IAgentLightningService>(sp => new AgentLightningService(
@@ -76,6 +121,15 @@ Console.WriteLine("✓ Services initialized");
 Console.WriteLine($"✓ Ollama connection configured ({ollamaBaseUrl})");
 Console.WriteLine($"✓ Web search + scraping configured (SearXNG: {searxngBaseUrl}, Crawl4AI: {crawl4aiBaseUrl})");
 Console.WriteLine("✓ Knowledge persistence configured (LightningStore)");
+if (vectorDbEnabled)
+{
+    Console.WriteLine($"✓ Vector database configured (Qdrant: {qdrantBaseUrl})");
+    Console.WriteLine($"✓ Embedding service configured ({embeddingModel})");
+}
+else
+{
+    Console.WriteLine("ℹ Vector database disabled (configure VectorDatabase:Enabled to enable)");
+}
 Console.WriteLine($"✓ Agent-Lightning integration configured ({lightningServerUrl})");
 Console.WriteLine("✓ APO (Automatic Performance Optimization) enabled");
 Console.WriteLine("✓ VERL (Verification and Reasoning Layer) enabled\n");

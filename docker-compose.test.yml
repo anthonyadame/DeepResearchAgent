@@ -22,6 +22,24 @@ services:
       timeout: 3s
       retries: 5
 
+  # Qdrant - Vector Database for Testing
+  qdrant-test:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-test
+    ports:
+      - "6334:6333"
+    volumes:
+      - qdrant_storage_test:/qdrant/storage
+    environment:
+      LOG_LEVEL: info
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   test-runner:
     build:
       context: ./DeepResearchAgent.Tests
@@ -29,11 +47,18 @@ services:
     depends_on:
       lightning-server-test:
         condition: service_healthy
+      qdrant-test:
+        condition: service_healthy
     environment:
       LIGHTNING_SERVER_URL: http://lightning-server-test:9090
+      QDRANT_URL: http://qdrant-test:6333
     networks:
       - test-network
 
 networks:
   test-network:
     driver: bridge
+
+volumes:
+  qdrant_storage_test:
+    driver: local

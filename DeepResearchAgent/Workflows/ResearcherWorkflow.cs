@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
+using DeepResearchAgent.Services.VectorDatabase;
 using DeepResearchAgent.Prompts;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,7 @@ namespace DeepResearchAgent.Workflows;
 /// 2. Tool Execution: Search, scrape, think
 /// 3. Research Compression: Synthesize findings
 /// 4. Fact Persistence: Store in knowledge base
+/// 5. Vector Database Indexing: Store embeddings for semantic search
 /// 
 /// Maps to Python lines 390-470 (Re Act loop pattern)
 /// </summary>
@@ -26,6 +28,8 @@ public class ResearcherWorkflow
     private readonly SearCrawl4AIService _searchService;
     private readonly OllamaService _llmService;
     private readonly LightningStore _store;
+    private readonly IVectorDatabaseService? _vectorDb;
+    private readonly IEmbeddingService? _embeddingService;
     private readonly ILogger<ResearcherWorkflow>? _logger;
 
     public ResearcherWorkflow(
@@ -33,12 +37,16 @@ public class ResearcherWorkflow
         SearCrawl4AIService searchService,
         OllamaService llmService,
         LightningStore store,
+        IVectorDatabaseService? vectorDb = null,
+        IEmbeddingService? embeddingService = null,
         ILogger<ResearcherWorkflow>? logger = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _vectorDb = vectorDb;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -111,6 +119,12 @@ public class ResearcherWorkflow
             {
                 await _store.SaveFactsAsync(facts.AsEnumerable(), cancellationToken);
                 _logger?.LogInformation("Persisted {count} facts to knowledge base", facts.Count);
+
+                // Step 5a: Index facts to vector database (if available)
+                if (_vectorDb != null && _embeddingService != null)
+                {
+                    await IndexFactsToVectorDatabaseAsync(facts, cancellationToken);
+                }
             }
 
             // Update final research state
@@ -319,8 +333,9 @@ Be concise and strategic. Focus on filling knowledge gaps.";
     }
 
     /// <summary>
-    /// Step 2: Tool Execution - Execute search, scraping, and thinking.
+    /// Step 2: Tool Execution - Execute search, scraping, and semantic knowledge search.
     /// Maps to Python lines 400-420
+    /// Now includes vector database search for external knowledge resources.
     /// </summary>
     public async Task ToolExecutionAsync(
         ResearcherState state,
@@ -340,15 +355,27 @@ Be concise and strategic. Focus on filling knowledge gaps.";
                 return;
             }
 
-            // Execute searches in parallel
-            var searchTasks = queries
-                .Take(2) // Max 2 concurrent searches
+            // Execute searches in parallel (web + vector database)
+            var searchTasks = new List<Task<List<string>>>();
+            
+            // Add web search tasks
+            searchTasks.AddRange(queries
+                .Take(2) // Max 2 concurrent web searches
                 .Select(q => ExecuteSearchAsync(q, cancellationToken))
-                .ToList();
+                .ToList());
+            
+            // Add vector database search tasks (if available)
+            if (_vectorDb != null && _embeddingService != null)
+            {
+                searchTasks.AddRange(queries
+                    .Take(2) // Max 2 concurrent vector database searches
+                    .Select(q => ExecuteVectorDatabaseSearchAsync(q, cancellationToken))
+                    .ToList());
+            }
 
             var searchResults = await Task.WhenAll(searchTasks);
 
-            // Aggregate results
+            // Aggregate results from both web and vector database searches
             foreach (var results in searchResults)
             {
                 foreach (var result in results)
@@ -358,15 +385,19 @@ Be concise and strategic. Focus on filling knowledge gaps.";
             }
 
             // Record tool execution in messages
+            var searchSourceInfo = _vectorDb != null && _embeddingService != null 
+                ? "web and vector database"
+                : "web search";
+            
             state.ResearcherMessages.Add(new Models.ChatMessage
             {
                 Role = "tool",
-                Content = $"Searched {queries.Count} topics and gathered {searchResults.Sum(r => r.Count)} pieces of information."
+                Content = $"Searched {queries.Count} topics across {searchSourceInfo} and gathered {searchResults.Sum(r => r.Count)} pieces of information."
             });
 
             state.ToolCallIterations++;
 
-            _logger?.LogInformation("ToolExecution: gathered {count} notes", searchResults.Sum(r => r.Count));
+            _logger?.LogInformation("ToolExecution: gathered {count} notes from combined sources", searchResults.Sum(r => r.Count));
         }
         catch (Exception ex)
         {
@@ -405,6 +436,87 @@ Be concise and strategic. Focus on filling knowledge gaps.";
             _logger?.LogWarning(ex, "Search for '{query}' failed", query);
             return new List<string>();
         }
+    }
+
+    /// <summary>
+    /// Execute a vector database search for existing knowledge resources.
+    /// Searches pre-existing or external knowledge bases for related information.
+    /// Similar to ExecuteSearchAsync but queries semantic embeddings instead of web.
+    /// </summary>
+    private async Task<List<string>> ExecuteVectorDatabaseSearchAsync(
+        string query,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger?.LogDebug("Vector database search for: {query}", query);
+
+            if (_vectorDb == null || _embeddingService == null)
+            {
+                _logger?.LogDebug("Vector database not configured - skipping vector search");
+                return new List<string>();
+            }
+
+            // Search for similar facts in vector database
+            // Use higher threshold (0.6) for quality relevance in knowledge bases
+            var searchResults = await _vectorDb.SearchByContentAsync(
+                query,
+                topK: 5,
+                scoreThreshold: 0.6,
+                cancellationToken: cancellationToken);
+
+            if (searchResults.Count == 0)
+            {
+                _logger?.LogDebug("Vector database search returned no results for: {query}", query);
+                return new List<string>();
+            }
+
+            // Convert vector search results to notes for research synthesis
+            var notes = searchResults
+                .Select(result => FormatVectorSearchResult(result))
+                .Where(content => !string.IsNullOrWhiteSpace(content))
+                .ToList();
+
+            _logger?.LogDebug("Vector database search found {count} relevant facts", notes.Count);
+
+            return notes;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Vector database search for '{query}' failed", query);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Format vector search result into note content with source attribution.
+    /// Includes the fact content, relevance score, and metadata for research context.
+    /// </summary>
+    private static string FormatVectorSearchResult(VectorSearchResult result)
+    {
+        if (string.IsNullOrWhiteSpace(result.Content))
+            return string.Empty;
+
+        var formatted = new StringBuilder();
+        formatted.AppendLine($"[Knowledge Base - Relevance: {result.Score:P0}]");
+        formatted.AppendLine(result.Content);
+
+        if (result.Metadata != null)
+        {
+            if (result.Metadata.TryGetValue("sourceUrl", out var sourceUrl) && sourceUrl != null)
+            {
+                formatted.AppendLine($"Source: {sourceUrl}");
+            }
+
+            if (result.Metadata.TryGetValue("confidence", out var confidence) && confidence != null)
+            {
+                formatted.AppendLine($"Confidence: {confidence}");
+            }
+        }
+
+        var text = formatted.ToString();
+        // Trim to reasonable length (consistent with web search results)
+        return text.Length > 280 ? text[..280] + "..." : text;
     }
 
     /// <summary>
@@ -635,5 +747,95 @@ Write the compressed research summary:";
     private static string GetTodayString()
     {
         return DateTime.Now.ToString("ddd MMM d, yyyy");
+    }
+
+    /// <summary>
+    /// Step 5a: Index facts to vector database for semantic search.
+    /// This stores document embeddings for later similarity-based retrieval.
+    /// </summary>
+    private async Task IndexFactsToVectorDatabaseAsync(
+        List<Models.FactState> facts,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger?.LogDebug("Indexing {count} facts to vector database", facts.Count);
+
+            // Generate embeddings for each fact's content
+            var embeddings = await _embeddingService!.EmbedBatchAsync(
+                facts.Select(f => f.Content).ToList(),
+                cancellationToken);
+
+            // Index each fact with its embedding
+            int indexedCount = 0;
+            for (int i = 0; i < facts.Count && i < embeddings.Count; i++)
+            {
+                try
+                {
+                    var metadata = new Dictionary<string, object>
+                    {
+                        ["factId"] = facts[i].Id,
+                        ["sourceUrl"] = facts[i].SourceUrl,
+                        ["confidence"] = facts[i].Confidence,
+                        ["extractedAt"] = facts[i].ExtractedAt.ToString("O")
+                    };
+
+                    await _vectorDb!.UpsertAsync(
+                        facts[i].Id,
+                        facts[i].Content,
+                        embeddings[i],
+                        metadata,
+                        cancellationToken);
+
+                    indexedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Failed to index fact {id} to vector database", facts[i].Id);
+                }
+            }
+
+            _logger?.LogInformation("Successfully indexed {count}/{total} facts to vector database", 
+                indexedCount, facts.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to index facts to vector database");
+        }
+    }
+
+    /// <summary>
+    /// Search the vector database for similar facts.
+    /// Useful for finding related research findings and avoiding redundant work.
+    /// </summary>
+    public async Task<IReadOnlyList<VectorSearchResult>> SearchSimilarFactsAsync(
+        string query,
+        int topK = 5,
+        CancellationToken cancellationToken = default)
+    {
+        if (_vectorDb == null || _embeddingService == null)
+        {
+            _logger?.LogWarning("Vector database not configured - cannot search similar facts");
+            return Array.Empty<VectorSearchResult>();
+        }
+
+        try
+        {
+            _logger?.LogDebug("Searching for similar facts to: {query}", query);
+
+            var results = await _vectorDb.SearchByContentAsync(
+                query,
+                topK,
+                scoreThreshold: 0.5,
+                cancellationToken: cancellationToken);
+
+            _logger?.LogInformation("Found {count} similar facts", results.Count);
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to search similar facts");
+            return Array.Empty<VectorSearchResult>();
+        }
     }
 }
