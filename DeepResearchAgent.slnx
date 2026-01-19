@@ -1,5 +1,5 @@
 <Solution>
-  <Folder Name="/Documentation/">
+  <Folder Name="/BuildDoc/">
     <File Path="BuildDoc/00_READ_THIS_FIRST.md" />
     <File Path="BuildDoc/AGENT_LIGHTNING_INTEGRATION.md" />
     <File Path="BuildDoc/AGENT_LIGHTNING_STATE_BEST_PRACTICES.md" />
@@ -57,16 +57,42 @@
     <File Path="BuildDoc/WORKFLOW_INTEGRATION_COMPLETE.md" />
     <File Path="BuildDoc/WORKFLOW_STATE_INTEGRATION_GUIDE.md" />
   </Folder>
-  <Folder Name="/Solution Items/">
+
+  <Folder Name="/crawl4ai-service/">
     <File Path="crawl4ai-service/Dockerfile" />
     <File Path="crawl4ai-service/requirements.txt" />
     <File Path="crawl4ai-service/server.py" />
+  </Folder>
+
+  <Folder Name="/lightning-server/">
+    <File Path="lightning-server/Dockerfile" />
+    <File Path="lightning-server/README.md" />
+    <File Path="lightning-server/requirements.txt" />
+    <File Path="lightning-server/server.py" />
+  </Folder>
+
+
+	<Folder Name="/lightning-server/tests/">
+		<File Path="lightning-server/tests/requirements.txt" />
+		<File Path="lightning-server/tests/test_integration.py" />
+    </Folder>
+
+  <Folder Name="/scripts/">
+    <File Path="scripts/test-lightning-integration.sh" />
+  </Folder>
+
+  <Folder Name="/searxng/">
+    <File Path="searxng/.env" />
+    <File Path="searxng/Caddyfile" />
+    <File Path="searxng/settings.yml" />
+  </Folder>
+
+  <Folder Name="/Solution Items/">
     <File Path="docker-compose.test.yml" />
     <File Path="docker-compose.yml" />
     <File Path="ini .editorconfig" />
     <File Path="LICENSE.txt" />
     <File Path="README.md" />
-    <File Path="searxng/settings.yml" />
   </Folder>
   <Project Path="DeepResearchAgent.Api/DeepResearchAgent.Api.csproj" />
   <Project Path="DeepResearchAgent.Tests/DeepResearchAgent.Tests.csproj" />
