@@ -2,6 +2,7 @@
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
+using DeepResearchAgent.Services.Telemetry;
 using DeepResearchAgent.Services.VectorDatabase;
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Workflows;
@@ -9,6 +10,8 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -27,7 +30,7 @@ var searxngBaseUrl = configuration["SearXNG:BaseUrl"] ?? "http://localhost:8080"
 var crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:11235";
 var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
-    ?? "http://localhost:9090";
+    ?? "http://localhost:8090";
 
 // Vector database configuration
 var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", false);
@@ -59,6 +62,7 @@ services.AddSingleton<SearCrawl4AIService>(sp => new SearCrawl4AIService(
     crawl4aiBaseUrl
 ));
 services.AddSingleton<LightningStore>();
+services.AddSingleton<MetricsService>();
 
 // Register embedding service
 services.AddSingleton<IEmbeddingService>(sp => new OllamaEmbeddingService(
@@ -134,6 +138,19 @@ Console.WriteLine($"✓ Agent-Lightning integration configured ({lightningServer
 Console.WriteLine("✓ APO (Automatic Performance Optimization) enabled");
 Console.WriteLine("✓ VERL (Verification and Reasoning Layer) enabled\n");
 
+// Configure OpenTelemetry metrics
+var prometheusUri = configuration["Telemetry:Prometheus:Uri"] ?? "http://localhost:9090/";
+
+using var meterProvider = OpenTelemetry.Sdk.CreateMeterProviderBuilder()
+    .AddMeter(MetricsService.MeterName)
+    .AddRuntimeInstrumentation()
+    .AddPrometheusExporter(options =>
+    {
+        options.StartHttpListener = true;
+        options.HttpListenerPrefixes = new[] { prometheusUri };
+    })
+    .Build();
+
 // Interactive menu loop
 bool running = true;
 while (running)
@@ -180,8 +197,9 @@ while (running)
 
 static void DisplayMenu()
 {
-    Console.WriteLine("\n╔════════════════════════════════════════════════════════╗");
-    Console.WriteLine("║     Deep Research Agent - Main Menu (Lightning)       ║");
+    Console.WriteLine("\n");
+    Console.WriteLine("╔════════════════════════════════════════════════════════╗");
+    Console.WriteLine("║     Deep Research Agent - Main Menu (Lightning)        ║");
     Console.WriteLine("╚════════════════════════════════════════════════════════╝");
     Console.WriteLine();
     Console.WriteLine("  [1] 🔍 Check Ollama Connection");

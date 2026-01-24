@@ -10,7 +10,7 @@ docker-compose up -d lightning-server
 # Wait for server to be ready
 echo "2️⃣ Waiting for Lightning Server to be ready..."
 for i in {1..30}; do
-    if curl -s http://localhost:9090/health > /dev/null; then
+    if curl -s http://localhost:8090/health > /dev/null; then
         echo "✅ Lightning Server is ready!"
         break
     fi
@@ -21,17 +21,17 @@ done
 # Test health endpoint
 echo ""
 echo "3️⃣ Testing health endpoint..."
-curl -s http://localhost:9090/health | jq
+curl -s http://localhost:8090/health | jq
 
 # Test server info
 echo ""
 echo "4️⃣ Testing server info..."
-curl -s http://localhost:9090/api/server/info | jq
+curl -s http://localhost:8090/api/server/info | jq
 
 # Register an agent
 echo ""
 echo "5️⃣ Registering test agent..."
-curl -s -X POST http://localhost:9090/api/agents/register \
+curl -s -X POST http://localhost:8090/api/agents/register \
   -H "Content-Type: application/json" \
   -d '{
     "agentId": "test-agent-1",
@@ -43,7 +43,7 @@ curl -s -X POST http://localhost:9090/api/agents/register \
 # Submit a task
 echo ""
 echo "6️⃣ Submitting test task..."
-TASK_RESPONSE=$(curl -s -X POST http://localhost:9090/api/tasks/submit \
+TASK_RESPONSE=$(curl -s -X POST http://localhost:8090/api/tasks/submit \
   -H "Content-Type: application/json" \
   -d '{
     "agentId": "test-agent-1",
@@ -62,7 +62,7 @@ TASK_ID=$(echo $TASK_RESPONSE | jq -r '.taskId')
 # Verify with VERL
 echo ""
 echo "7️⃣ Testing VERL verification..."
-curl -s -X POST http://localhost:9090/api/verl/verify \
+curl -s -X POST http://localhost:8090/api/verl/verify \
   -H "Content-Type: application/json" \
   -d "{
     \"taskId\": \"$TASK_ID\",

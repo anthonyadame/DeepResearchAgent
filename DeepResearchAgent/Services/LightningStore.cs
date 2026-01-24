@@ -35,7 +35,7 @@ public class LightningStoreOptions
     public string FileName { get; set; } = "lightningstore.json";
     
     /// <summary>Lightning Server URL for distributed store access</summary>
-    public string LightningServerUrl { get; set; } = "http://localhost:9090";
+    public string LightningServerUrl { get; set; } = "http://localhost:8090";
     
     /// <summary>Use Lightning Server (true) or local file storage (false)</summary>
     public bool UseLightningServer { get; set; } = true;

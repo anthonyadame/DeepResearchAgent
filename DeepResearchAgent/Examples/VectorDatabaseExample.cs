@@ -39,7 +39,7 @@ public class VectorDatabaseExample
         var ollamaDefaultModel = configuration["Ollama:DefaultModel"] ?? "gpt-oss:20b";
         var searxngBaseUrl = configuration["SearXNG:BaseUrl"] ?? "http://localhost:8080";
         var crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:11235";
-        var lightningServerUrl = configuration["Lightning:ServerUrl"] ?? "http://localhost:9090";
+        var lightningServerUrl = configuration["Lightning:ServerUrl"] ?? "http://localhost:8090";
 
         var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", true);
         var qdrantBaseUrl = configuration["VectorDatabase:Qdrant:BaseUrl"] ?? "http://localhost:6333";

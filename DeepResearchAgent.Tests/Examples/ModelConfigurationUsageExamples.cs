@@ -57,8 +57,8 @@ public class ModelConfigurationUsageExamples
         // All fast/small models for cost efficiency
         var config = new WorkflowModelConfiguration
         {
-            SupervisorBrainModel = "mistral:latest",
-            SupervisorToolsModel = "mistral:latest",
+            SupervisorBrainModel = "mistral:7b",
+            SupervisorToolsModel = "mistral:7b",
             QualityEvaluatorModel = "mistral:7b",
             RedTeamModel = "mistral:7b",
             ContextPrunerModel = "orca-mini:latest"
@@ -213,7 +213,7 @@ public class ModelConfigurationUsageExamples
         return new WorkflowModelConfiguration
         {
             SupervisorBrainModel = "mistral:7b",
-            SupervisorToolsModel = "mistral:latest",
+            SupervisorToolsModel = "mistral:7b",
             QualityEvaluatorModel = "mistral:7b",
             RedTeamModel = "mistral:7b",
             ContextPrunerModel = "orca-mini:latest"

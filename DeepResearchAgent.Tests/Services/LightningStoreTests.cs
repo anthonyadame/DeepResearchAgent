@@ -21,7 +21,7 @@ public class LightningStoreTests
         _httpClient = new HttpClient(_httpMessageHandlerMock.Object);
         _options = new LightningStoreOptions
         {
-            LightningServerUrl = "http://localhost:9090",
+            LightningServerUrl = "http://localhost:8090",
             UseLightningServer = true,
             DataDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()),
             ResourceNamespace = "test-facts"

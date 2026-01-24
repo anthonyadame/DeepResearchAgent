@@ -42,7 +42,7 @@ public class LightningIntegrationManualTest
         // Step 2: Test Agent-Lightning connection
         Console.WriteLine("\nStep 2: Testing Agent-Lightning connection...\n");
         var httpClient = new HttpClient();
-        var lightningService = new AgentLightningService(httpClient, "http://localhost:9090");
+        var lightningService = new AgentLightningService(httpClient, "http://localhost:8090");
 
         try
         {

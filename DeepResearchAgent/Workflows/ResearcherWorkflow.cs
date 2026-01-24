@@ -3,6 +3,7 @@ using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Services.VectorDatabase;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
 using OllamaSharp.Models.Chat;
@@ -34,6 +35,7 @@ public class ResearcherWorkflow
     private readonly IVectorDatabaseService? _vectorDb;
     private readonly IEmbeddingService? _embeddingService;
     private readonly ILogger<ResearcherWorkflow>? _logger;
+    private readonly MetricsService _metrics;
 
     public ResearcherWorkflow(
         ILightningStateService stateService,
@@ -42,7 +44,8 @@ public class ResearcherWorkflow
         LightningStore store,
         IVectorDatabaseService? vectorDb = null,
         IEmbeddingService? embeddingService = null,
-        ILogger<ResearcherWorkflow>? logger = null)
+        ILogger<ResearcherWorkflow>? logger = null,
+        MetricsService? metrics = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
@@ -51,6 +54,7 @@ public class ResearcherWorkflow
         _vectorDb = vectorDb;
         _embeddingService = embeddingService;
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -63,6 +67,10 @@ public class ResearcherWorkflow
         CancellationToken cancellationToken = default)
     {
         var localResearchId = researchId ?? Guid.NewGuid().ToString();
+        _metrics.RecordRequest("researcher", "started");
+        _metrics.TrackResearchRequest("researcher", localResearchId, "started");
+        var stopwatch = _metrics.StartTimer();
+
         _logger?.LogInformation("ResearcherWorkflow starting for topic: {topic}, Research ID: {researchId}", topic, localResearchId);
 
         try
@@ -77,6 +85,8 @@ public class ResearcherWorkflow
             };
 
             await _stateService.SetResearchStateAsync(localResearchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
+            _metrics.TrackStateOperation("set_research_state", "success");
 
             var researcherState = CreateResearcherState(topic);
             
@@ -103,11 +113,13 @@ public class ResearcherWorkflow
                 // Update progress
                 var progressQuality = CalculateResearchQuality(researcherState);
                 await _stateService.UpdateResearchProgressAsync(
-                    localResearchId,
-                    iteration + 1,
-                    progressQuality,
-                    cancellationToken
-                );
+                     localResearchId,
+                     iteration + 1,
+                     progressQuality,
+                     cancellationToken
+                 );
+                 _metrics.RecordStateOperation("update_research_progress", true);
+                 _metrics.TrackStateOperation("update_research_progress", "success");
 
                 _logger?.LogDebug("Research iteration {iter} completed, quality: {quality:P}", iteration + 1, progressQuality);
             }
@@ -134,15 +146,24 @@ public class ResearcherWorkflow
             researchState.Status = ResearchStatus.Completed;
             researchState.CompletedAt = DateTime.UtcNow;
             await _stateService.SetResearchStateAsync(localResearchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
+            _metrics.TrackStateOperation("set_research_state", "success");
 
             _logger?.LogInformation("Research complete for topic: {topic} - {count} facts extracted", 
                 topic, facts.Count);
             
+            _metrics.RecordRequest("researcher", "succeeded", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("researcher", localResearchId, "succeeded");
+            _metrics.RecordAgentExecution("researcher", "complete", true);
             return facts;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "ResearcherWorkflow failed for topic: {topic}", topic);
+            _metrics.RecordError("researcher", ex.GetType().Name);
+            _metrics.TrackError("researcher", ex.GetType().Name);
+            _metrics.RecordRequest("researcher", "failed", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("researcher", localResearchId, "failed");
+            _metrics.RecordAgentExecution("researcher", "complete", false);
             throw;
         }
     }
@@ -266,6 +287,7 @@ public class ResearcherWorkflow
         try
         {
             _logger?.LogDebug("LLMCall: deciding research direction");
+            _metrics.RecordAgentExecution("researcher", "llm_call", true);
 
             var currentDate = GetTodayString();
             
@@ -322,6 +344,8 @@ public class ResearcherWorkflow
             }
 
             var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
+            _metrics.RecordLlmRequest("researcher", _llmService.DefaultModel ?? "ollama", true);
+            _metrics.TrackLlmRequest("researcher", _llmService.DefaultModel ?? "ollama", "success");
             
             _logger?.LogDebug("LLM decision: {length} chars", response.Content.Length);
             
@@ -334,6 +358,10 @@ public class ResearcherWorkflow
         }
         catch (Exception ex)
         {
+            _metrics.RecordLlmRequest("researcher", _llmService.DefaultModel ?? "ollama", false);
+            _metrics.TrackLlmRequest("researcher", _llmService.DefaultModel ?? "ollama", "failed");
+            _metrics.RecordError("researcher", ex.GetType().Name);
+            _metrics.TrackError("researcher", ex.GetType().Name);
             _logger?.LogWarning(ex, "LLMCall failed - using fallback");
             return new Models.ChatMessage 
             { 
@@ -356,6 +384,7 @@ public class ResearcherWorkflow
         try
         {
             _logger?.LogDebug("ToolExecution: executing LLM decision");
+            _metrics.RecordAgentExecution("researcher", "tool_execution", true);
 
             // Extract research queries from LLM response
             var queries = ExtractSearchQueries(llmResponse.Content, state.ResearchTopic);
@@ -423,6 +452,8 @@ public class ResearcherWorkflow
         }
         catch (Exception ex)
         {
+            _metrics.RecordAgentExecution("researcher", "tool_execution", false);
+            _metrics.RecordError("researcher", ex.GetType().Name);
             _logger?.LogWarning(ex, "ToolExecution failed");
         }
     }

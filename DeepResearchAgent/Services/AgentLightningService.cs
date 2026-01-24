@@ -26,7 +26,7 @@ public class AgentLightningService : IAgentLightningService
     private readonly string _clientId;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    public AgentLightningService(HttpClient httpClient, string lightningServerUrl = "http://localhost:9090", string? clientId = null)
+    public AgentLightningService(HttpClient httpClient, string lightningServerUrl = "http://localhost:8090", string? clientId = null)
     {
         _httpClient = httpClient;
         _lightningServerUrl = lightningServerUrl;

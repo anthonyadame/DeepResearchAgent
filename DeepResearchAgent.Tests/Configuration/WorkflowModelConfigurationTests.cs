@@ -38,8 +38,8 @@ public class WorkflowModelConfigurationTests
         Assert.Equal("gpt-oss:20b", config.RedTeamModel);
 
         // Tools and pruner use faster models
-        Assert.Equal("mistral:latest", config.SupervisorToolsModel);
-        Assert.Equal("mistral:latest", config.ContextPrunerModel);
+        Assert.Equal("mistral:7b", config.SupervisorToolsModel);
+        Assert.Equal("mistral:7b", config.ContextPrunerModel);
     }
 
     #endregion
@@ -148,7 +148,7 @@ public class WorkflowModelConfigurationTests
 
         // Act & Assert
         Assert.Equal("neural-chat:latest", config.SupervisorBrainModel);
-        Assert.Equal("mistral:latest", config.SupervisorToolsModel);
+        Assert.Equal("mistral:7b", config.SupervisorToolsModel);
         Assert.Equal("gpt-oss:20b", config.QualityEvaluatorModel);
     }
 

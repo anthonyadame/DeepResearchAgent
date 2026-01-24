@@ -7,6 +7,7 @@ using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Configuration;
 using Microsoft.Extensions.Logging;
+using DeepResearchAgent.Services.Telemetry;
 
 namespace DeepResearchAgent.Workflows;
 
@@ -31,6 +32,7 @@ public class SupervisorWorkflow
     private readonly ILogger<SupervisorWorkflow>? _logger;
     private readonly StateManager? _stateManager;
     private readonly WorkflowModelConfiguration _modelConfig;
+    private readonly MetricsService _metrics;
 
     public SupervisorWorkflow(
         ILightningStateService stateService,
@@ -39,7 +41,8 @@ public class SupervisorWorkflow
         LightningStore? store = null,
         ILogger<SupervisorWorkflow>? logger = null,
         StateManager? stateManager = null,
-        WorkflowModelConfiguration? modelConfig = null)
+        WorkflowModelConfiguration? modelConfig = null,
+        MetricsService? metrics = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _researcher = researcher ?? throw new ArgumentNullException(nameof(researcher));
@@ -48,6 +51,7 @@ public class SupervisorWorkflow
         _logger = logger;
         _stateManager = stateManager;
         _modelConfig = modelConfig ?? new WorkflowModelConfiguration();
+        _metrics = metrics ?? new MetricsService();
 
         _logger?.LogInformation("SupervisorWorkflow initialized with model configuration: Brain={brain}, Tools={tools}, QualityEvaluator={evaluator}, RedTeam={redteam}, ContextPruner={pruner}",
             _modelConfig.SupervisorBrainModel,
@@ -69,6 +73,10 @@ public class SupervisorWorkflow
         CancellationToken cancellationToken = default)
     {
         var supervisionId = Guid.NewGuid().ToString();
+        _metrics.RecordRequest("supervisor", "started");
+        _metrics.TrackResearchRequest("supervisor", supervisionId, "started");
+        var stopwatch = _metrics.StartTimer();
+
         _logger?.LogInformation("SupervisorWorkflow starting - Supervision ID: {supervisionId}", supervisionId);
 
         try
@@ -88,9 +96,12 @@ public class SupervisorWorkflow
                 // Step 1: Supervisor Brain - Decide next actions
                 var brainDecision = await SupervisorBrainAsync(supervisorState, cancellationToken);
                 supervisorState.SupervisorMessages.Add(brainDecision);
+                _metrics.RecordLlmRequest("supervisor", _llmService.DefaultModel ?? "ollama", true);
+                _metrics.TrackLlmRequest("supervisor", _llmService.DefaultModel ?? "ollama", "success");
 
                 // Step 2: Execute Tools based on brain decision
                 await SupervisorToolsAsync(supervisorState, brainDecision, null, cancellationToken);
+                _metrics.RecordAgentExecution("supervisor", "tools", true);
 
                 // Step 3: Quality Evaluation
                 var quality = await EvaluateDraftQualityAsync(supervisorState, cancellationToken);
@@ -109,6 +120,8 @@ public class SupervisorWorkflow
                         quality / 10.0,  // Normalize to 0-1
                         cancellationToken
                     );
+                    _metrics.RecordStateOperation("update_research_progress", true);
+                    _metrics.TrackStateOperation("update_research_progress", "success");
                 }
 
                 _logger?.LogInformation("Iteration {iter} quality: {quality:F1}/10", iteration + 1, quality);
@@ -129,11 +142,13 @@ public class SupervisorWorkflow
                         supervisorState.ActiveCritiques.Add(critique);
                         _logger?.LogInformation("Red team critique: {concern}", 
                             critique.Concern.Substring(0, Math.Min(60, critique.Concern.Length)));
+                        _metrics.RecordAgentExecution("supervisor", "redteam", true);
                     }
                 }
 
                 // Step 6: Context Pruning (extract and deduplicate facts)
                 await ContextPrunerAsync(supervisorState, cancellationToken);
+                _metrics.RecordAgentExecution("supervisor", "context_pruner", true);
             }
 
             _logger?.LogInformation("Supervisor complete - iterations: {count}, quality: {quality:F1}/10",
@@ -142,11 +157,18 @@ public class SupervisorWorkflow
 
             // Synthesize findings
             var summary = SummarizeFacts(supervisorState.ResearchBrief, supervisorState.KnowledgeBase.AsReadOnly());
+            _metrics.RecordRequest("supervisor", "succeeded", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("supervisor", supervisionId, "succeeded");
+            _metrics.RecordAgentExecution("supervisor", "complete", true);
             return summary;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "SupervisorWorkflow failed");
+            _metrics.RecordError("supervisor", ex.GetType().Name);
+            _metrics.TrackError("supervisor", ex.GetType().Name);
+            _metrics.RecordRequest("supervisor", "failed", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("supervisor", supervisionId, "failed");
+            _metrics.RecordAgentExecution("supervisor", "complete", false);
             throw;
         }
     }

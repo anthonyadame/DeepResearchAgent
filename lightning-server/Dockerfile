@@ -95,7 +95,7 @@ EXPOSE 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:9090/health || exit 1
+    CMD curl -f http://localhost:8090/health || exit 1
 
 # Run the server
 CMD ["python", "server.py"]
@@ -184,7 +184,7 @@ USER lightning
 EXPOSE 9090
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:9090/health || exit 1
+    CMD curl -f http://localhost:8090/health || exit 1
 
 CMD ["python", "server.py"]
 

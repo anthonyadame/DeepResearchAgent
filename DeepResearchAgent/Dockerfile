@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_VERSION=8.0 \
     ASPNETCORE_URLS=http://+:5000 \
-    LIGHTNING_SERVER_URL=http://localhost:9090
+    LIGHTNING_SERVER_URL=http://localhost:8090
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \

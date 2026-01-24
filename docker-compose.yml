@@ -1,27 +1,28 @@
 services:
-  # Ollama - LLM Service
+  # Ollama for local LLM inference (optional, remove if using external LLM)
   ollama:
     image: ollama/ollama:0.14.3
-    container_name: researcho-ollama
+    container_name: research-ollama
     ports:
       - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-    networks:
-      - research-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - research-network
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 3
+              device_ids: ['0', '1', '2']
               capabilities: [gpu]
 
   caddy:
@@ -42,21 +43,35 @@ services:
         max-size: "1m"
         max-file: "1"
 
+  # Redis for distributed caching and state management
   redis:
+    image: redis:7-alpine
     container_name: research-redis
-    image: docker.io/valkey/valkey:8-alpine
-    command: valkey-server --save 30 1 --loglevel warning
-    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
     networks:
       - research-network
-    volumes:
-      - valkey-data2:/data
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "1"
+    command: redis-server --appendonly yes
 
+  # Redis Exporter for Prometheus
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: research-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    networks:
+      - research-network
+    depends_on:
+      - redis
 
   searxng:
     container_name: research-searxng
@@ -83,24 +98,6 @@ services:
       retries: 3
 
 
-  # SearXNG - Meta Search Engine
-  # searxng:
-  #   image: searxng/searxng:latest
-  #   container_name: deep-research-searxng
-  #   ports:
-  #     - "8080:8080"
-  #   volumes:
-  #     - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
-  #   environment:
-  #     BIND_ADDRESS: 0.0.0.0:8080
-  #   networks:
-  #     - deep-research-network
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-
   # Crawl4AI - Web Scraping Service
   crawl4ai:
     image: unclecode/crawl4ai:latest
@@ -121,15 +118,11 @@ services:
   # Lightning Server - Agent Orchestration with APO & VERL
   lightning-server:
     image: lightning-server:cuda
-    #build:
-    #  context: ./localhost
-    #  dockerfile: Dockerfile
-    #  target: cuda
     container_name: research-lightning-server
     ports:
-      - "9090:9090"
+      - "8090:8090"
     environment:
-      LIGHTNING_PORT: 9090
+      LIGHTNING_PORT: 8090
       APO_ENABLED: "true"
       VERL_ENABLED: "true"
       APO_STRATEGY: "balanced"
@@ -138,43 +131,24 @@ services:
       VERL_TRACKING_ENABLED: "true"
       VERL_CONFIDENCE_THRESHOLD: 0.7
       LOG_LEVEL: INFO
-    networks:
-      - research-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Deep Research Agent - Main Orchestrator
-  # research-agent:
-  #   build:
-  #     context: ./DeepResearchAgent
-  #     dockerfile: Dockerfile
-  #   container_name: deep-research-agent
-  #   ports:
-  #     - "5000:5000"
-  #   environment:
-  #     LIGHTNING_SERVER_URL: http://localhost:9090
-  #     OLLAMA_ENDPOINT: http://ollama:11434
-  #     SEARXNG_ENDPOINT: http://searxng:8080
-  #     CRAWL4AI_ENDPOINT: http://crawl4ai:11235
-  #   networks:
-  #     - deep-research-network
-  #   depends_on:
-  #     ollama:
-  #       condition: service_healthy
-  #     searxng:
-  #       condition: service_healthy
-  #     crawl4ai:
-  #       condition: service_healthy
-  #     lightning-server:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+    volumes:
+      - lightning-data:/app/data
+    networks:
+      - research-network
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['3']
+              capabilities: [gpu]
 
   # Qdrant - Vector Database for Semantic Search
   qdrant:
@@ -195,9 +169,112 @@ services:
       timeout: 10s
       retries: 3
 
+  influxdb:
+    image: influxdb:2.7
+    container_name: research-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME:-admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:-password}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-deep-research}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-research}
+      - DOCKER_INFLUXDB_INIT_RETENTION=30d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:-influx-token}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    networks:
+      - research-network
+    healthcheck:
+      test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+ 
+  # AlertManager for alert management
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: research-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - research-network
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: research-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - research-network
+    depends_on:
+      alertmanager:
+        condition: service_started
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: research-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-deep-research}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-research}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-influx-token}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - research-network
+    depends_on:
+      prometheus:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+
 networks:
-  # searxng:
-  deep-research-network:
+  research-network:
     driver: bridge
 
 volumes:
@@ -205,7 +282,23 @@ volumes:
   caddy-config:
   valkey-data2:
   searxng-data:
+  qdrant_storage:
+    driver: local
+  lightning-data:
+    driver: local
+  lightning-cache:
+    driver: local
+  redis-data:
+    driver: local
   ollama_data:
     driver: local
-  qdrant_storage:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  influxdb-data:
+    driver: local
+  influxdb-config:
+    driver: local
+  alertmanager-data:
     driver: local

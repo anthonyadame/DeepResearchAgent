@@ -6,7 +6,7 @@ import httpx
 import asyncio
 from datetime import datetime
 
-BASE_URL = "http://localhost:9090"
+BASE_URL = "http://localhost:8090"
 
 @pytest.fixture
 async def http_client():

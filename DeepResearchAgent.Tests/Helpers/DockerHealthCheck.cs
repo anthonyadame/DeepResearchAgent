@@ -48,7 +48,7 @@ public class DockerHealthCheck
             ("Ollama", "http://localhost:11434/api/health"),
             ("SearXNG", "http://localhost:8080/healthz"),
             ("Crawl4AI", "http://localhost:11235/health"),
-            ("Lightning Server", "http://localhost:9090/health")
+            ("Lightning Server", "http://localhost:8090/health")
         };
 
         foreach (var (serviceName, healthUrl) in services)

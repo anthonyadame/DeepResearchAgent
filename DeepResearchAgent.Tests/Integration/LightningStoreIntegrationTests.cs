@@ -24,7 +24,7 @@ public class LightningStoreIntegrationTests : IAsyncLifetime
 
         var options = new LightningStoreOptions
         {
-            LightningServerUrl = "http://localhost:9090", // Assumes Lightning Server is running
+            LightningServerUrl = "http://localhost:8090", // Assumes Lightning Server is running
             UseLightningServer = true,
             DataDirectory = _testDataDir,
             ResourceNamespace = "integration-test-facts"
@@ -43,7 +43,7 @@ public class LightningStoreIntegrationTests : IAsyncLifetime
         {
             try
             {
-                var response = await _httpClient.GetAsync("http://localhost:9090/health");
+                var response = await _httpClient.GetAsync("http://localhost:8090/health");
                 if (response.IsSuccessStatusCode)
                 {
                     return;

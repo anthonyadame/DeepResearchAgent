@@ -20,7 +20,7 @@ public class LightningVERLService : ILightningVERLService
     private readonly HttpClient _httpClient;
     private readonly string _lightningServerUrl;
 
-    public LightningVERLService(HttpClient httpClient, string lightningServerUrl = "http://localhostr:9090")
+    public LightningVERLService(HttpClient httpClient, string lightningServerUrl = "http://localhostr:8090")
     {
         _httpClient = httpClient;
         _lightningServerUrl = lightningServerUrl;

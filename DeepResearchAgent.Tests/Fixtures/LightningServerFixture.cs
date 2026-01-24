@@ -24,7 +24,7 @@ public class LightningServerFixture : IAsyncLifetime
         // Check if server is already running
         var isHealthy = await DockerHealthCheck.WaitForServiceHealthAsync(
             "Lightning Server",
-            "http://localhost:9090/health",
+            "http://localhost:8090/health",
             timeoutSeconds: 10,
             intervalMilliseconds: 1000
         );
@@ -46,7 +46,7 @@ public class LightningServerFixture : IAsyncLifetime
         {
             isHealthy = await DockerHealthCheck.WaitForServiceHealthAsync(
                 "Lightning Server",
-                "http://localhost:9090/health",
+                "http://localhost:8090/health",
                 timeoutSeconds: 5,
                 intervalMilliseconds: 2000
             );

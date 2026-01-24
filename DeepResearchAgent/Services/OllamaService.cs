@@ -24,6 +24,8 @@ public class OllamaService
     private readonly HttpClient _httpClient;
     private readonly ILogger<OllamaService>? _logger;
 
+    public string DefaultModel => _defaultModel;
+
     public OllamaService(
         string baseUrl = "http://localhost:11434",
         string defaultModel = "gpt-oss:20b",

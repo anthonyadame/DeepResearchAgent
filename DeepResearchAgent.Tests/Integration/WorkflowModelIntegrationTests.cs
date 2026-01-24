@@ -33,7 +33,7 @@ public class WorkflowModelIntegrationTests
         var config = new WorkflowModelConfiguration
         {
             SupervisorBrainModel = "mistral:7b",
-            SupervisorToolsModel = "mistral:latest",
+            SupervisorToolsModel = "mistral:7b",
             QualityEvaluatorModel = "mistral:7b",
             RedTeamModel = "mistral:7b",
             ContextPrunerModel = "orca-mini:latest"
@@ -116,10 +116,10 @@ public class WorkflowModelIntegrationTests
 
         // Act & Assert
         Assert.Equal("gpt-oss:20b", config.SupervisorBrainModel);      // Quality
-        Assert.Equal("mistral:latest", config.SupervisorToolsModel);   // Speed
+        Assert.Equal("mistral:7b", config.SupervisorToolsModel);   // Speed
         Assert.Equal("gpt-oss:20b", config.QualityEvaluatorModel);     // Quality
         Assert.Equal("gpt-oss:20b", config.RedTeamModel);              // Quality
-        Assert.Equal("mistral:latest", config.ContextPrunerModel);     // Speed
+        Assert.Equal("mistral:7b", config.ContextPrunerModel);     // Speed
     }
 
     #endregion
@@ -177,7 +177,7 @@ public class WorkflowModelIntegrationTests
         return new WorkflowModelConfiguration
         {
             SupervisorBrainModel = "mistral:7b",
-            SupervisorToolsModel = "mistral:latest",
+            SupervisorToolsModel = "mistral:7b",
             QualityEvaluatorModel = "mistral:7b",
             RedTeamModel = "mistral:7b",
             ContextPrunerModel = "orca-mini:latest"

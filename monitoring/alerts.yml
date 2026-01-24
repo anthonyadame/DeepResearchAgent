@@ -1,0 +1,11 @@
+groups:
+  - name: infrastructure-alerts
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} is down"
+          description: "Prometheus has failed to scrape {{ $labels.job }} target {{ $labels.instance }} for over 1 minute."

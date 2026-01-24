@@ -3,6 +3,7 @@ using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Workflows;
@@ -26,19 +27,22 @@ public class MasterWorkflow
     private readonly OllamaService _llmService;
     private readonly ILogger<MasterWorkflow>? _logger;
     private readonly StateManager? _stateManager;
+    private readonly MetricsService _metrics;
 
     public MasterWorkflow(
         ILightningStateService stateService,
         SupervisorWorkflow supervisor,
         OllamaService llmService,
         ILogger<MasterWorkflow>? logger = null,
-        StateManager? stateManager = null)
+        StateManager? stateManager = null,
+        MetricsService? metrics = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _logger = logger;
         _stateManager = stateManager;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -48,6 +52,10 @@ public class MasterWorkflow
     public async Task<string> RunAsync(string userQuery, CancellationToken cancellationToken = default)
     {
         var researchId = Guid.NewGuid().ToString();
+        _metrics.RecordRequest("master", "started");
+        _metrics.TrackResearchRequest("master", researchId, "started");
+        var stopwatch = _metrics.StartTimer();
+
         _logger?.LogInformation("Starting MasterWorkflow with research ID: {researchId}", researchId);
 
         try
@@ -63,6 +71,7 @@ public class MasterWorkflow
             };
             
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             _logger?.LogInformation("Research {ResearchId} initialized", researchId);
 
             // Step 1: Clarify with user (check if query is detailed enough)
@@ -70,6 +79,7 @@ public class MasterWorkflow
             researchState.Status = ResearchStatus.InProgress;
             researchState.Metadata["phase"] = "clarification";
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             
             var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
             
@@ -79,6 +89,7 @@ public class MasterWorkflow
                 researchState.Status = ResearchStatus.Failed;
                 researchState.Metadata["failure_reason"] = "Clarification required";
                 await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+                _metrics.RecordStateOperation("set_research_state", true);
                 return $"Clarification needed:\n\n{clarificationQuestion}";
             }
 
@@ -87,6 +98,7 @@ public class MasterWorkflow
             researchState.Metadata["phase"] = "brief_writing";
             researchState.IterationCount = 1;
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             
             var researchBrief = await WriteResearchBriefAsync(userQuery, cancellationToken);
             researchState.Metadata["researchBrief"] = researchBrief;
@@ -96,6 +108,7 @@ public class MasterWorkflow
             researchState.Metadata["phase"] = "draft_writing";
             researchState.IterationCount = 2;
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             
             var draftReport = await WriteDraftReportAsync(researchBrief, cancellationToken);
             researchState.Metadata["draftReport"] = draftReport;
@@ -106,6 +119,7 @@ public class MasterWorkflow
             researchState.Metadata["phase"] = "supervision";
             researchState.IterationCount = 3;
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             
             var refinedSummary = await _supervisor.SuperviseAsync(researchBrief, draftReport, cancellationToken: cancellationToken);
             researchState.Metadata["refinedSummary"] = refinedSummary;
@@ -115,6 +129,7 @@ public class MasterWorkflow
             researchState.Metadata["phase"] = "final_report";
             researchState.IterationCount = 4;
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
             
             var finalReport = await GenerateFinalReportAsync(userQuery, researchBrief, draftReport, refinedSummary, cancellationToken);
             researchState.Metadata["finalReport"] = finalReport;
@@ -124,15 +139,23 @@ public class MasterWorkflow
             researchState.CompletedAt = DateTime.UtcNow;
             researchState.IterationCount = 5;
             await _stateService.SetResearchStateAsync(researchId, researchState, cancellationToken);
+            _metrics.RecordStateOperation("set_research_state", true);
 
             _logger?.LogInformation("MasterWorkflow {ResearchId} completed successfully", researchId);
             var metrics = _stateService.GetMetrics();
             _logger?.LogInformation("State service metrics - Cache hit rate: {HitRate:P}", metrics.CacheHitRate);
             
+            _metrics.RecordRequest("master", "succeeded", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("master", researchId, "succeeded");
             return finalReport;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError("master", ex.GetType().Name);
+            _metrics.TrackError("master", ex.GetType().Name);
+            _metrics.RecordRequest("master", "failed", stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.TrackResearchRequest("master", researchId, "failed");
+            
             _logger?.LogError(ex, "MasterWorkflow {ResearchId} failed", researchId);
             try
             {

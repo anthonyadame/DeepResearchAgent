@@ -16,9 +16,9 @@ public class WorkflowModelConfiguration
 
     /// <summary>
     /// Model for tool execution and research coordination.
-    /// Default: "mistral:latest" (fast, cost-effective)
+    /// Default: "mistral:7b" (fast, cost-effective)
     /// </summary>
-    public string SupervisorToolsModel { get; set; } = "mistral:latest";
+    public string SupervisorToolsModel { get; set; } = "mistral:7b";
 
     /// <summary>
     /// Model for quality evaluation and scoring (requires analysis).
@@ -34,9 +34,9 @@ public class WorkflowModelConfiguration
 
     /// <summary>
     /// Model for context pruning and fact extraction (requires understanding).
-    /// Default: "mistral:latest" (good comprehension, fast)
+    /// Default: "mistral:7b" (good comprehension, fast)
     /// </summary>
-    public string ContextPrunerModel { get; set; } = "mistral:latest";
+    public string ContextPrunerModel { get; set; } = "mistral:7b";
 
     /// <summary>
     /// Get a model for a specific workflow function.
