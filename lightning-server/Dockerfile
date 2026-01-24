@@ -2,15 +2,28 @@ FROM node:20-slim as dashboard-builder
 
 WORKDIR /build
 
-# Install git and build tools
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# Clone Agent Lightning repository
 RUN git clone --depth 1 --branch main https://github.com/microsoft/agent-lightning.git
 
-# Build the dashboard
 WORKDIR /build/agent-lightning/dashboard
-RUN npm ci && npm run build
+
+RUN npm ci
+RUN node - <<'NODE'
+const fs = require('fs');
+const p = 'src/Router.tsx';
+let s = fs.readFileSync(p, 'utf8');
+if (!s.includes('basename')) {
+  s = s.replace(/createBrowserRouter\(([^)]*)\)/,
+    'createBrowserRouter($1, { basename: import.meta.env.BASE_URL || "/dashboard" })');
+  fs.writeFileSync(p, s);
+  console.log('Injected basename "/dashboard" into router');
+} else {
+  console.log('Router basename already present');
+}
+NODE
+
+RUN npm run build -- --base=/dashboard/
 
 # ========== CPU-only Python runtime ==========
 FROM python:3.11-slim as base
@@ -60,8 +73,8 @@ RUN pip install --no-cache-dir \
     nltk==3.8.1 \
     textblob==0.17.1
 
-# Copy dashboard assets from builder stage
-COPY --from=dashboard-builder /build/agent-lightning/dashboard /app/agentlightning/dashboard
+# Copy built dashboard assets from the package output path
+COPY --from=dashboard-builder /build/agent-lightning/agentlightning/dashboard /app/agentlightning/dashboard
 
 # Copy application code
 COPY server.py .
@@ -69,8 +82,10 @@ COPY server.py .
 # Download NLTK data (required for textblob)
 RUN python -c "import nltk; nltk.download('punkt'); nltk.download('brown')"
 
-# Create non-root user
+# Create non-root user and fix permissions for litellm UI path
 RUN useradd -m -u 1000 lightning && \
+    mkdir -p /usr/local/lib/python3.11/dist-packages/litellm/proxy/_experimental/out && \
+    chown -R lightning:lightning /usr/local/lib/python3.11/dist-packages/litellm && \
     chown -R lightning:lightning /app
 
 USER lightning
@@ -120,6 +135,9 @@ RUN pip install --no-cache-dir \
     torchvision==0.19.0 \
     --index-url https://download.pytorch.org/whl/cu124
 
+# flash-attn build-time deps
+RUN pip install --no-cache-dir psutil packaging
+
 # Install flash-attention (required for VERL)
 RUN pip install --no-cache-dir flash-attn --no-build-isolation
 
@@ -146,8 +164,8 @@ RUN pip install --no-cache-dir \
     nltk==3.8.1 \
     textblob==0.17.1
 
-# Copy dashboard assets from builder stage
-COPY --from=dashboard-builder /build/agent-lightning/dashboard/dist /app/agentlightning/dashboard
+# Copy built dashboard assets from the package output path
+COPY --from=dashboard-builder /build/agent-lightning/agentlightning/dashboard /app/agentlightning/dashboard
 
 # Copy application code
 COPY server.py .
@@ -155,8 +173,10 @@ COPY server.py .
 # Download NLTK data
 RUN python -c "import nltk; nltk.download('punkt'); nltk.download('brown')"
 
-# Create non-root user
+# Create non-root user and fix permissions for litellm UI path
 RUN useradd -m -u 1000 lightning && \
+    mkdir -p /usr/local/lib/python3.11/dist-packages/litellm/proxy/_experimental/out && \
+    chown -R lightning:lightning /usr/local/lib/python3.11/dist-packages/litellm && \
     chown -R lightning:lightning /app
 
 USER lightning
@@ -167,3 +187,8 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -f http://localhost:9090/health || exit 1
 
 CMD ["python", "server.py"]
+
+# Build commands:
+# docker build --no-cache -t lightning-server:cuda --target cuda .
+# or for CPU
+# docker build --no-cache -t lightning-server:latest --target base .

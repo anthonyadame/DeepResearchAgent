@@ -16,11 +16,35 @@ FastAPI server providing Agent-Lightning integration with APO & VERL support for
 
 # Build the Docker image
 cd lightning-server
-docker build -t lightning-server:latest --target base .
+docker build -t lightning-server:cuda --target cuda .
 
 # Run the server
-docker run -p 9090:9090 lightning-server:latest
+docker run --gpus all -p 9090:9090 lightning-server:cuda
 
+# Or specify a single GPU
+docker run --gpus '"device=0"' -p 9090:9090 lightning-server:cuda
+
+# Or specify multiple GPUs
+docker run --gpus '"device=0,1"' -p 9090:9090 lightning-server:cuda
+
+# Alternative env-based form
+docker run -e NVIDIA_VISIBLE_DEVICES=0 -p 9090:9090 lightning-server:cuda
+
+# Compose snippet
+```
+services:
+  lightning-server:
+    image: lightning-server:cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1          # or 2
+              capabilities: [gpu]
+    ports:
+      - "9090:9090"
+````
 # Access the dashboard
 open http://localhost:9090/dashboard
 
@@ -92,7 +116,7 @@ open http://localhost:9090/docs
 
 ## Integration with C# Deep Research Agent
 
-var options = new LightningStoreOptions { LightningServerUrl = "http://lightning-server:9090", UseLightningServer = true };
+var options = new LightningStoreOptions { LightningServerUrl = "http://localhost:9090", UseLightningServer = true };
 var store = new LightningStore(options); await store.SaveFactsAsync(facts);
 
 ## Troubleshooting

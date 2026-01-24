@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   # Ollama - LLM Service
   ollama:
-    image: ollama/ollama:latest
-    container_name: deep-research-ollama
+    image: ollama/ollama:0.14.3
+    container_name: researcho-ollama
     ports:
       - "11434:11434"
     volumes:
@@ -12,15 +10,22 @@ services:
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
     networks:
-      - deep-research-network
+      - research-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 3
+              capabilities: [gpu]
 
   caddy:
-    container_name: caddy
+    container_name: research-caddy
     image: docker.io/library/caddy:2-alpine
     network_mode: host
     restart: unless-stopped
@@ -38,12 +43,12 @@ services:
         max-file: "1"
 
   redis:
-    container_name: redis
+    container_name: research-redis
     image: docker.io/valkey/valkey:8-alpine
     command: valkey-server --save 30 1 --loglevel warning
     restart: unless-stopped
     networks:
-      - deep-research-network
+      - research-network
     volumes:
       - valkey-data2:/data
     logging:
@@ -54,11 +59,11 @@ services:
 
 
   searxng:
-    container_name: deep-research-searxng
-    image: docker.io/searxng/searxng:latest
+    container_name: research-searxng
+    image: searxng/searxng:latest
     restart: unless-stopped
     networks:
-      - deep-research-network
+      - research-network
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -99,14 +104,14 @@ services:
   # Crawl4AI - Web Scraping Service
   crawl4ai:
     image: unclecode/crawl4ai:latest
-    container_name: deep-research-crawl4ai
+    container_name: research-crawl4ai
     ports:
       - "11235:11235"
     environment:
       API_PORT: 11235
       LOG_LEVEL: INFO
     networks:
-      - deep-research-network
+      - research-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
       interval: 30s
@@ -115,11 +120,12 @@ services:
 
   # Lightning Server - Agent Orchestration with APO & VERL
   lightning-server:
-    build:
-      context: ./lightning-server
-      dockerfile: Dockerfile
-      target: base
-    container_name: deep-research-lightning-server
+    image: lightning-server:cuda
+    #build:
+    #  context: ./localhost
+    #  dockerfile: Dockerfile
+    #  target: cuda
+    container_name: research-lightning-server
     ports:
       - "9090:9090"
     environment:
@@ -133,7 +139,7 @@ services:
       VERL_CONFIDENCE_THRESHOLD: 0.7
       LOG_LEVEL: INFO
     networks:
-      - deep-research-network
+      - research-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 30s
@@ -149,7 +155,7 @@ services:
   #   ports:
   #     - "5000:5000"
   #   environment:
-  #     LIGHTNING_SERVER_URL: http://lightning-server:9090
+  #     LIGHTNING_SERVER_URL: http://localhost:9090
   #     OLLAMA_ENDPOINT: http://ollama:11434
   #     SEARXNG_ENDPOINT: http://searxng:8080
   #     CRAWL4AI_ENDPOINT: http://crawl4ai:11235
@@ -173,7 +179,7 @@ services:
   # Qdrant - Vector Database for Semantic Search
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: deep-research-qdrant
+    container_name: research-qdrant
     ports:
       - "6333:6333"
     volumes:
@@ -182,7 +188,7 @@ services:
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       LOG_LEVEL: info
     networks:
-      - deep-research-network
+      - research-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
       interval: 30s

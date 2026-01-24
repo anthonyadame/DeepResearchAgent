@@ -30,7 +30,7 @@ var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? "http://localhost:9090";
 
 // Vector database configuration
-var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", true);
+var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", false);
 var qdrantBaseUrl = configuration["VectorDatabase:Qdrant:BaseUrl"] ?? "http://localhost:6333";
 var qdrantCollectionName = configuration["VectorDatabase:Qdrant:CollectionName"] ?? "research";
 var qdrantVectorDimension = configuration.GetValue("VectorDatabase:Qdrant:VectorDimension", 384);
@@ -234,17 +234,34 @@ static async Task CheckOllamaConnection(ServiceProvider serviceProvider, string 
             {
                 Console.WriteLine("⚠ No models found. Run: ollama pull mistral");
             }
-            
-            // Test invocation
-            Console.WriteLine("\n➤ Testing LLM invocation...");
-            var testMessages = new List<OllamaChatMessage>
+
+
+            if (models.Any())
             {
-                new() { Role = "user", Content = "Say 'Hello from Deep Research Agent!' in one sentence." }
-            };
-            
-            var response = await ollamaService.InvokeAsync(testMessages);
-            Console.WriteLine($"✓ Response: {response.Content}");
-            Console.WriteLine("\n✅ OLLAMA CONNECTION: SUCCESS");
+                Console.WriteLine("\n➤ Testing LLM invocation...");
+                var testMessages = new List<OllamaChatMessage>
+                {
+                    new() { Role = "user", Content = "Say 'Hello from Deep Research Agent!' in one sentence." }
+                };
+
+                Console.WriteLine($"✓ Found {models.Count()} model(s):");
+                foreach (var model in models.Where(x => x == "mistral:7b" || x== "gpt-oss:20b"))
+                {
+                    Console.WriteLine($"  • {model}");
+
+                    var response = await ollamaService.InvokeAsync(testMessages, model);
+                    Console.WriteLine($"✓ Model: {model} Response: {response.Content}");
+                    Console.WriteLine("\n✅ OLLAMA CONNECTION: SUCCESS");
+                }
+                if (models.Count() > 5)
+                {
+                    Console.WriteLine($"  ... and {models.Count() - 5} more");
+                }
+            }
+            else
+            {
+                Console.WriteLine("⚠ No models found. Run: ollama pull mistral");
+            }
         }
         else
         {
@@ -444,9 +461,9 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
         if (string.IsNullOrEmpty(query))
         {
             //query = "Summarize the latest advancements in transformer architectures";
-            query = @"\nConduct a deep analysis of the 'Splinternet' phenomenon's impact on global semiconductor supply chains by 2028.
-                \nSpecifically contrast TSMC's diversification strategy against Intel's IDM 2.0 model under 2024-2025 US export controls,
-                \nand predict the resulting shift in insurance liability models for cross-border wafer shipments.";
+            query = @"Conduct a deep analysis of the 'Splinternet' phenomenon's impact on global semiconductor supply chains by 2028.
+                Specifically contrast TSMC's diversification strategy against Intel's IDM 2.0 model under 2024-2025 US export controls,
+                and predict the resulting shift in insurance liability models for cross-border wafer shipments.";
             Console.WriteLine($"Using default query: {query}");
         }
 

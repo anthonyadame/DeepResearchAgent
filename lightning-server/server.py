@@ -61,6 +61,10 @@ app = FastAPI(
 dashboard_path = Path("/app/agentlightning/dashboard")
 if dashboard_path.exists() and dashboard_path.is_dir():
     app.mount("/dashboard", StaticFiles(directory=str(dashboard_path), html=True), name="dashboard")
+    assets_path = dashboard_path / "assets"
+    if assets_path.exists():
+        # Vite build emits assets at root (/assets/*); mount them explicitly
+        app.mount("/assets", StaticFiles(directory=str(assets_path), html=False), name="dashboard-assets")
     logger.info(f"✅ Agent Lightning Dashboard mounted at /dashboard")
 else:
     logger.warning(f"⚠️ Dashboard not found at {dashboard_path}")
@@ -73,6 +77,11 @@ if AGENT_LIGHTNING_AVAILABLE:
         # Create in-memory Lightning Store
         lightning_store = InMemoryLightningStore(thread_safe=True)
         logger.info("Agent Lightning InMemoryLightningStore initialized")
+
+        # Expose Agent Lightning REST APIs for the dashboard
+        store_api = LightningStoreServer(store=lightning_store)
+        app.include_router(store_api.router, prefix="/api")
+        logger.info("Agent Lightning store API mounted at /api")
     except Exception as e:
         logger.error(f"Failed to initialize Agent Lightning Store: {e}")
         lightning_store = None

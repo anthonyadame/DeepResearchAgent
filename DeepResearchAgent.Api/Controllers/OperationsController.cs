@@ -43,7 +43,7 @@ public class OperationsController : ControllerBase
         _crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:11235";
         _lightningServerUrl = configuration["Lightning:ServerUrl"]
             ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
-            ?? "http://lightning-server:9090";
+            ?? "http://localhost:9090";
     }
 
     [HttpGet("health/ollama")]

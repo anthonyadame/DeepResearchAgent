@@ -3,7 +3,7 @@ version: '3.8'
 services:
   lightning-server-test:
     build:
-      context: ./lightning-server
+      context: ./localhost
       dockerfile: Dockerfile
       target: base
     container_name: lightning-server-test
@@ -50,7 +50,7 @@ services:
       qdrant-test:
         condition: service_healthy
     environment:
-      LIGHTNING_SERVER_URL: http://lightning-server-test:9090
+      LIGHTNING_SERVER_URL: http://localhost-test:9090
       QDRANT_URL: http://qdrant-test:6333
     networks:
       - test-network

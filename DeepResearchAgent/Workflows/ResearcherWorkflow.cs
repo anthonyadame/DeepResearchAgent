@@ -1,12 +1,15 @@
-using System.Text;
-using System.Text.Json;
-using System.Runtime.CompilerServices;
 using DeepResearchAgent.Models;
+using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Services.VectorDatabase;
-using DeepResearchAgent.Prompts;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.VectorData;
+using OllamaSharp.Models.Chat;
+using System.Collections;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 
 namespace DeepResearchAgent.Workflows;
 
@@ -285,19 +288,23 @@ public class ResearcherWorkflow
                 contextBuilder.AppendLine();
             }
 
-            var systemPrompt = PromptTemplates.ResearchAgentPrompt ?? $@"You are an expert research agent conducting focused research.
+            string task = @"
+            Your task:
+            1. Assess what you've learned so far (if anything)
+            2. Identify the most important next search or question
+            3. Decide whether to:
+               - Search for a specific aspect
+               - Ask a clarifying question (reflect)
+               - Stop researching (you have enough)
 
-{contextBuilder}
+            Be concise and strategic. Focus on filling knowledge gaps.
+            ";
 
-Your task:
-1. Assess what you've learned so far (if anything)
-2. Identify the most important next search or question
-3. Decide whether to:
-   - Search for a specific aspect
-   - Ask a clarifying question (reflect)
-   - Stop researching (you have enough)
-
-Be concise and strategic. Focus on filling knowledge gaps.";
+            
+            var systemPrompt = PromptTemplates.ResearchAgentPrompt
+                .Replace("{context}", contextBuilder.ToString())
+                .Replace("{task}", task)
+                .Replace("{date}", currentDate);
 
             var messages = new List<OllamaChatMessage>
             {
@@ -305,9 +312,13 @@ Be concise and strategic. Focus on filling knowledge gaps.";
             };
 
             // Add research history
-            foreach (var msg in state.ResearcherMessages.Cast<OllamaChatMessage>())
+            foreach (var msg in state.ResearcherMessages)
             {
-                messages.Add(msg);
+                messages.Add(new OllamaChatMessage 
+                { 
+                    Role = msg.Role, 
+                    Content = msg.Content 
+                });
             }
 
             var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
@@ -355,32 +366,43 @@ Be concise and strategic. Focus on filling knowledge gaps.";
                 return;
             }
 
-            // Execute searches in parallel (web + vector database)
-            var searchTasks = new List<Task<List<string>>>();
-            
-            // Add web search tasks
-            searchTasks.AddRange(queries
+            // Execute web searches
+            var webSearchTasks = queries
                 .Take(2) // Max 2 concurrent web searches
-                .Select(q => ExecuteSearchAsync(q, cancellationToken))
-                .ToList());
-            
-            // Add vector database search tasks (if available)
-            if (_vectorDb != null && _embeddingService != null)
+                .Select(q => ExecuteSearchAsync(q,cancellationToken))
+                ;
+
+            var webSearchResults = await Task.WhenAll(webSearchTasks);
+
+            // Add web search results to raw notes
+            foreach (var result in webSearchResults)
             {
-                searchTasks.AddRange(queries
-                    .Take(2) // Max 2 concurrent vector database searches
-                    .Select(q => ExecuteVectorDatabaseSearchAsync(q, cancellationToken))
-                    .ToList());
+                if (result.Any())
+                {
+                    state.RawNotes.AddRange(result);
+                }
             }
 
-            var searchResults = await Task.WhenAll(searchTasks);
-
-            // Aggregate results from both web and vector database searches
-            foreach (var results in searchResults)
+            // Execute vector database searches (if available)
+            if (_vectorDb != null && _embeddingService != null)
             {
-                foreach (var result in results)
+                var vectorSearchTasks = queries
+                    .Take(2) // Max 2 concurrent vector database searches
+                    .Select(q => ExecuteVectorDatabaseSearchAsync(q, cancellationToken))
+                    .ToList();
+
+                var vectorSearchResults = await Task.WhenAll(vectorSearchTasks);
+
+                // Add vector search results to raw notes (flatten the lists)
+                foreach (var resultList in vectorSearchResults)
                 {
-                    state.RawNotes.Add(result);
+                    foreach (var result in resultList)
+                    {
+                        if (!string.IsNullOrWhiteSpace(result))
+                        {
+                            state.RawNotes.Add(result);
+                        }
+                    }
                 }
             }
 
@@ -392,12 +414,12 @@ Be concise and strategic. Focus on filling knowledge gaps.";
             state.ResearcherMessages.Add(new Models.ChatMessage
             {
                 Role = "tool",
-                Content = $"Searched {queries.Count} topics across {searchSourceInfo} and gathered {searchResults.Sum(r => r.Count)} pieces of information."
+                Content = $"Searched {queries.Count} topics across {searchSourceInfo} and gathered {state.RawNotes.Count} pieces of information."
             });
 
             state.ToolCallIterations++;
 
-            _logger?.LogInformation("ToolExecution: gathered {count} notes from combined sources", searchResults.Sum(r => r.Count));
+            _logger?.LogInformation("ToolExecution: gathered {count} notes from combined sources", state.RawNotes.Count);
         }
         catch (Exception ex)
         {
@@ -415,19 +437,31 @@ Be concise and strategic. Focus on filling knowledge gaps.";
         try
         {
             _logger?.LogDebug("Searching for: {query}", query);
-
+            
+            // 1. Execute the search
             var results = await _searchService.SearchAndScrapeAsync(
                 query,
                 maxResults: 3,
                 cancellationToken: cancellationToken
             );
 
-            var notes = results
-                .Select(r => BuildFactContent(r))
-                .Where(content => !string.IsNullOrWhiteSpace(content))
-                .ToList();
+            // 2. Deduplicate the results.
+            var uniqueResults = DeduplicateSearchResults(results, cancellationToken);
 
-            _logger?.LogDebug("Search found {count} results", notes.Count);
+            // 3. Process and summarize the content.
+            var processedResults = await ProcessSearchResults(uniqueResults, cancellationToken);
+
+            //4. Format the final output.
+            var formattedOutput = FormatSearchOutput(processedResults, cancellationToken);
+
+            //var notes = results
+            //    .Select(r => BuildFactContent(r))
+            //    .Where(content => !string.IsNullOrWhiteSpace(content))
+            //    .ToList();
+
+            _logger?.LogDebug("Search found {count} results", uniqueResults.Count);
+
+            var notes = new List<string>() { formattedOutput };
 
             return notes;
         }
@@ -437,6 +471,143 @@ Be concise and strategic. Focus on filling knowledge gaps.";
             return new List<string>();
         }
     }
+
+    private List<ScrapedContent> DeduplicateSearchResults(
+        List<ScrapedContent> scrapedContents,
+        CancellationToken cancellationToken)
+    {
+        var deduplicatedContents = new List<ScrapedContent>();
+
+        foreach (var scrapedContent in scrapedContents)
+        {
+            // Simple deduplication based on URL or Title
+            bool isDuplicate = deduplicatedContents.Any(other =>
+                    other.Url == scrapedContent.Url);
+
+            if (isDuplicate)
+            {
+                _logger?.LogDebug("Deduplicated search result: {url}", scrapedContent.Url);
+                scrapedContents.Remove(scrapedContent);
+            }
+            else
+            {
+                deduplicatedContents.Add(scrapedContent);
+            }
+        }
+
+        return deduplicatedContents;
+    }
+
+    private async Task<Dictionary<string, (string, string)>> ProcessSearchResults(
+        List<ScrapedContent> uniqueContents,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var summarizeTasks = uniqueContents
+                .Select(async c =>
+                {
+                    var summary = !string.IsNullOrWhiteSpace(c.Html)
+                        ? await SummarizeContent(c.Html, cancellationToken)
+                        : c.Html ?? string.Empty;
+                    return new { c.Url, c.Title, Content = summary };
+                });
+
+            var results = await Task.WhenAll(summarizeTasks);
+
+            var resultDict = results.ToDictionary(
+                r => r.Url,
+                r => (r.Title, r.Content) // Both summary and keyExcerpts set to Content for now
+            );
+            return resultDict;
+
+        }
+        catch (Exception ex) 
+        {
+            _logger?.LogWarning(ex, "Processing search results failed");
+            return new Dictionary<string, (string, string)>();
+        }
+        
+    }
+
+    private string FormatSearchOutput(
+        Dictionary<string, (string, string)> summarizedResults,
+        CancellationToken cancellationToken)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Search results: \n\n");
+        
+        int i = 1;
+        foreach (var kvp in summarizedResults)
+        {
+            string url = kvp.Key;
+            var (title, content) = kvp.Value;
+
+            sb.AppendLine();                       // blank line before each source
+            sb.AppendLine($"--- SOURCE {i}: {title} ---");
+            sb.AppendLine($"URL: {url}");
+            sb.AppendLine();                       // blank line after the URL
+            sb.AppendLine("SUMMARY:");
+            sb.AppendLine(content);
+            sb.AppendLine();                       // blank line after the content
+            sb.AppendLine(new string('-', 80));     // 80 hyphens as a separator
+            sb.AppendLine();                       // optional final blank line
+            i++;
+        }
+        return sb.ToString();
+    }
+
+
+
+    private async Task<string> SummarizeContent(
+        string content,
+        CancellationToken cancellationToken)
+    {
+        
+        try
+        {
+            var summary = "";
+            var currentDate = GetTodayString();
+
+            var userPrompt = PromptTemplates.SummarizeWebpagePrompt
+                    .Replace("{webpage_content}", content)
+                    .Replace("{date}", currentDate);
+
+            var messages = new List<OllamaChatMessage>
+            {
+                new() { Role = "user", Content = userPrompt }
+            };
+
+            var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
+
+            if (response != null && !string.IsNullOrEmpty(response.Content))
+            {
+                var jsonClean = response.Content.Substring(1, response.Content.Length - 1).Replace("```", "").Replace("json", "").ReplaceLineEndings();
+                var responseJson = JsonDocument.Parse(jsonClean);
+
+                summary = "<summary>\n{summary}\n</summary>\n\n<key_excerpts>\n{key_excerpts}\n</key_excerpts>";
+
+                if (responseJson.RootElement.TryGetProperty("summary", out var summaryElement))
+                {
+                    summary = summary.Replace("{summary}", summaryElement.GetString() ?? "");
+                }
+
+                if (responseJson.RootElement.TryGetProperty("key_excerpts", out var keyExcerpts))
+                {
+                    summary = summary.Replace("{key_excerpts}", keyExcerpts.GetString() ?? "");
+                }
+            }
+
+            return summary;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "SummarizeContent '{content}' failed", content);
+            return string.Empty;
+        }
+        
+    }
+
 
     /// <summary>
     /// Execute a vector database search for existing knowledge resources.
@@ -563,50 +734,51 @@ Be concise and strategic. Focus on filling knowledge gaps.";
         {
             _logger?.LogDebug("CompressResearch: synthesizing findings");
 
-            if (state.RawNotes.Count == 0)
-            {
-                return "No research findings to compress.";
-            }
-
             var currentDate = GetTodayString();
-            
-            // Aggregate raw notes
-            var aggregatedNotes = string.Join("\n\n", state.RawNotes.Take(15));
 
-            var compressionPrompt = PromptTemplates.CompressResearchSystemPrompt ?? $@"You are a research compression expert. Synthesize raw research findings into a concise, well-organized summary.
-
-Date: {currentDate}
-
-Research Topic: {state.ResearchTopic}
-
-Raw Research Notes:
-{aggregatedNotes}
-
-Task: Create a comprehensive but concise summary that:
-1. Extracts key findings and insights
-2. Preserves important data and quotes
-3. Mentions sources where identified
-4. Organizes information logically
-5. Removes redundancy
-
-Write the compressed research summary:";
+            var compressionSystemPrompt = PromptTemplates.CompressResearchSystemPrompt
+                .Replace("{date}", currentDate);
 
             var messages = new List<OllamaChatMessage>
             {
-                new() { Role = "system", Content = compressionPrompt }
+                new() { Role = "system", Content = compressionSystemPrompt }
             };
+
+            // Convert ChatMessage to OllamaChatMessage
+            foreach (var msg in state.ResearcherMessages)
+            {
+                messages.Add(new OllamaChatMessage 
+                { 
+                    Role = msg.Role, 
+                    Content = msg.Content 
+                });
+            }
+            
+            var compressResearchHumanMessage = PromptTemplates.CompressResearchHumanMessage
+                .Replace("{research_topic}", "")
+                .Replace("{research_query}", "")
+                .Replace("{date}", currentDate);
+
+
+            messages.Add(new() { Role = "user", Content = compressResearchHumanMessage });
+
 
             var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
             var compressed = response.Content ?? "Unable to compress research findings.";
 
+
+            // Aggregate raw notes
+            var aggregatedNotes = string.Join("\n\n", state.RawNotes.Take(15));
+
+
             _logger?.LogInformation("CompressResearch: {length} chars", compressed.Length);
 
-            return compressed;
+            return aggregatedNotes;
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "CompressResearch failed");
-            return string.Join("\n", state.RawNotes.Take(5)); // Fallback: return raw notes
+            return string.Empty;
         }
     }
 
