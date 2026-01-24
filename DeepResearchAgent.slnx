@@ -56,6 +56,7 @@
     <File Path="BuildDoc/WEB_API_DOCUMENTATION.md" />
     <File Path="BuildDoc/WORKFLOW_INTEGRATION_COMPLETE.md" />
     <File Path="BuildDoc/WORKFLOW_STATE_INTEGRATION_GUIDE.md" />
+    <File Path="DeepResearchAgent/Services/README_SEARCRAWL4AI.md" />
   </Folder>
 
   <Folder Name="/crawl4ai-service/">
