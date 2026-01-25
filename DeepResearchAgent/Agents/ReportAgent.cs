@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -17,21 +18,27 @@ namespace DeepResearchAgent.Agents;
 /// 6. Produces final formatted report
 /// 
 /// Returns: ReportOutput with complete, publication-ready report
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class ReportAgent
 {
     private readonly OllamaService _llmService;
     private readonly ToolInvocationService _toolService;
     private readonly ILogger<ReportAgent>? _logger;
+    private readonly MetricsService _metrics;
+
+    protected virtual string AgentName => "ReportAgent";
 
     public ReportAgent(
         OllamaService llmService,
         ToolInvocationService toolService,
-        ILogger<ReportAgent>? logger = null)
+        ILogger<ReportAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _toolService = toolService ?? throw new ArgumentNullException(nameof(toolService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -41,6 +48,8 @@ public class ReportAgent
         ReportInput input,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
         var output = new ReportOutput
         {
             CreatedAt = DateTime.UtcNow
@@ -83,10 +92,13 @@ public class ReportAgent
             _logger?.LogInformation("ReportAgent: Report generation complete ({Length} chars total)", 
                 output.ExecutiveSummary.Length + output.Sections.Sum(s => s.Content.Length));
 
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return output;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "ReportAgent: Report generation failed");
             output.CompletionStatus = "failed";
             throw;
@@ -94,8 +106,37 @@ public class ReportAgent
     }
 
     /// <summary>
-    /// Generate a compelling title for the report.
+    /// Format ReportOutput as readable text.
     /// </summary>
+    private string FormatReportAsText(ReportOutput report)
+    {
+        var sb = new System.Text.StringBuilder();
+        
+        sb.AppendLine($"# {report.Title}");
+        sb.AppendLine();
+        sb.AppendLine("## Executive Summary");
+        sb.AppendLine(report.ExecutiveSummary);
+        sb.AppendLine();
+
+        foreach (var section in report.Sections)
+        {
+            sb.AppendLine($"## {section.Heading}");
+            sb.AppendLine(section.Content);
+            sb.AppendLine();
+        }
+
+        if (report.Citations.Any())
+        {
+            sb.AppendLine("## References");
+            foreach (var citation in report.Citations)
+            {
+                sb.AppendLine($"[{citation.Index}] {citation.Source}");
+            }
+        }
+
+        return sb.ToString();
+    }
+
     private async Task<string> GenerateTitleAsync(
         string topic,
         CancellationToken cancellationToken)
@@ -127,9 +168,6 @@ Respond with ONLY the title, nothing else.";
         }
     }
 
-    /// <summary>
-    /// Generate an executive summary.
-    /// </summary>
     private async Task<string> GenerateExecutiveSummaryAsync(
         ReportInput input,
         CancellationToken cancellationToken)
@@ -169,9 +207,6 @@ The summary should:
         }
     }
 
-    /// <summary>
-    /// Structure findings into organized report sections.
-    /// </summary>
     private async Task<List<ReportSection>> StructureReportAsync(
         ReportInput input,
         CancellationToken cancellationToken)
@@ -244,9 +279,6 @@ The conclusion should summarize the main takeaways.";
         return sections;
     }
 
-    /// <summary>
-    /// Polish content for publication quality.
-    /// </summary>
     private async Task<List<ReportSection>> PolishContentAsync(
         List<ReportSection> sections,
         CancellationToken cancellationToken)
@@ -289,9 +321,6 @@ Respond with ONLY the polished content.";
         }
     }
 
-    /// <summary>
-    /// Generate citations from research sources.
-    /// </summary>
     private async Task<List<Citation>> GenerateCitationsAsync(
         ReportInput input,
         CancellationToken cancellationToken)
@@ -330,9 +359,6 @@ Respond with ONLY the polished content.";
         return citations;
     }
 
-    /// <summary>
-    /// Validate report completeness.
-    /// </summary>
     private async Task<bool> ValidateCompletenessAsync(
         ReportOutput report,
         ReportInput input,
@@ -355,9 +381,6 @@ Respond with ONLY the polished content.";
         }
     }
 
-    /// <summary>
-    /// Calculate overall report quality score.
-    /// </summary>
     private float CalculateQualityScore(ReportInput input, ReportOutput output)
     {
         var factors = new List<float>();

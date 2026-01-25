@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -17,21 +18,27 @@ namespace DeepResearchAgent.Agents;
 /// 6. Generates confidence scores
 /// 
 /// Returns: AnalysisOutput with synthesized insights and quality metrics
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class AnalystAgent
 {
     private readonly OllamaService _llmService;
     private readonly ToolInvocationService _toolService;
     private readonly ILogger<AnalystAgent>? _logger;
+    private readonly MetricsService _metrics;
+
+    protected virtual string AgentName => "AnalystAgent";
 
     public AnalystAgent(
         OllamaService llmService,
         ToolInvocationService toolService,
-        ILogger<AnalystAgent>? logger = null)
+        ILogger<AnalystAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _toolService = toolService ?? throw new ArgumentNullException(nameof(toolService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -41,6 +48,8 @@ public class AnalystAgent
         AnalysisInput input,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
         var output = new AnalysisOutput();
 
         try
@@ -85,10 +94,13 @@ public class AnalystAgent
             _logger?.LogInformation("AnalystAgent: Analysis complete with confidence score: {Confidence:F2}", 
                 output.ConfidenceScore);
 
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return output;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "AnalystAgent: Analysis failed");
             throw;
         }
@@ -202,7 +214,7 @@ Example: [""theme1"", ""theme2"", ""theme3""]";
 
             var factsText = string.Join("\n", facts.Select(f => $"- {f.Statement}"));
 
-            var contraddictPrompt = $@"Identify any contradictions or conflicts between these findings:
+            var contradictPrompt = $@"Identify any contradictions or conflicts between these findings:
 
 {factsText}
 
@@ -216,7 +228,7 @@ Respond with a JSON array of objects, each with fields: fact_1, fact_2, explanat
 
             var messages = new List<OllamaChatMessage>
             {
-                new() { Role = "user", Content = contraddictPrompt }
+                new() { Role = "user", Content = contradictPrompt }
             };
 
             var response = await _llmService.InvokeAsync(messages, null, cancellationToken);

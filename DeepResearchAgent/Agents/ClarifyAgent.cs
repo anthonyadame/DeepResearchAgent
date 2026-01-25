@@ -2,6 +2,7 @@ using System.Globalization;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -15,16 +16,24 @@ namespace DeepResearchAgent.Agents;
 /// - If sufficient detail exists, confirm and move to research brief generation
 /// 
 /// Maps to Python's clarify_with_user node (lines 870-920 in rd-code.py)
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class ClarifyAgent
 {
     private readonly OllamaService _llmService;
     private readonly ILogger<ClarifyAgent>? _logger;
+    private readonly MetricsService _metrics;
 
-    public ClarifyAgent(OllamaService llmService, ILogger<ClarifyAgent>? logger = null)
+    protected virtual string AgentName => "ClarifyAgent";
+
+    public ClarifyAgent(
+        OllamaService llmService, 
+        ILogger<ClarifyAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -38,6 +47,9 @@ public class ClarifyAgent
         List<ChatMessage> conversationHistory,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
+
         try
         {
             var messagesText = FormatMessagesToString(conversationHistory);
@@ -64,10 +76,13 @@ public class ClarifyAgent
                 "ClarifyAgent: Decision made - NeedClarification={NeedClarification}", 
                 response.NeedClarification);
             
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return response;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "ClarifyAgent: Error during clarification analysis");
             throw new InvalidOperationException("Failed to analyze user intent for clarification", ex);
         }

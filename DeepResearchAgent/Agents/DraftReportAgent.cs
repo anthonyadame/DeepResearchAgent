@@ -2,6 +2,7 @@ using System.Globalization;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -16,16 +17,24 @@ namespace DeepResearchAgent.Agents;
 /// - Mark starting quality baseline
 /// 
 /// Maps to Python's write_initial_draft_report node (~1000 in rd-code.py)
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class DraftReportAgent
 {
     private readonly OllamaService _llmService;
     private readonly ILogger<DraftReportAgent>? _logger;
+    private readonly MetricsService _metrics;
 
-    public DraftReportAgent(OllamaService llmService, ILogger<DraftReportAgent>? logger = null)
+    protected virtual string AgentName => "DraftReportAgent";
+
+    public DraftReportAgent(
+        OllamaService llmService, 
+        ILogger<DraftReportAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -37,6 +46,9 @@ public class DraftReportAgent
         List<ChatMessage> conversationHistory,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
+
         try
         {
             var currentDate = GetTodayString();
@@ -64,10 +76,13 @@ public class DraftReportAgent
             // Parse the response into a DraftReport
             var draftReport = ParseDraftReport(rawResponse.Content);
             
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return draftReport;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "DraftReportAgent: Error generating draft report");
             throw new InvalidOperationException("Failed to generate draft report from research brief", ex);
         }

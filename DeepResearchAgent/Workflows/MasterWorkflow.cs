@@ -60,16 +60,15 @@ public class MasterWorkflow
         _stateManager = stateManager;
         _metrics = metrics ?? new MetricsService();
         
-        // Initialize Phase 2 agents
-        // Note: We pass null for logger to avoid type mismatch since loggers are generic
-        _clarifyAgent = new ClarifyAgent(_llmService, null);
-        _briefAgent = new ResearchBriefAgent(_llmService, null);
-        _draftAgent = new DraftReportAgent(_llmService, null);
+        // Initialize Phase 2 agents with metrics support
+        _clarifyAgent = new ClarifyAgent(_llmService, null, _metrics);
+        _briefAgent = new ResearchBriefAgent(_llmService, null, _metrics);
+        _draftAgent = new DraftReportAgent(_llmService, null, _metrics);
         
-        // Initialize Phase 4 complex agents
-        _researcherAgent = researcherAgent ?? new ResearcherAgent(_llmService, new ToolInvocationService(null, null), null);
-        _analystAgent = analystAgent ?? new AnalystAgent(_llmService, new ToolInvocationService(null, null), null);
-        _reportAgent = reportAgent ?? new ReportAgent(_llmService, new ToolInvocationService(null, null), null);
+        // Initialize Phase 4 complex agents with metrics support
+        _researcherAgent = researcherAgent ?? new ResearcherAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
+        _analystAgent = analystAgent ?? new AnalystAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
+        _reportAgent = reportAgent ?? new ReportAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
     }
 
     /// <summary>

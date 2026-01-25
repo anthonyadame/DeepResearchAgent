@@ -2,6 +2,7 @@ using System.Globalization;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -16,16 +17,24 @@ namespace DeepResearchAgent.Agents;
 /// - Create the "guidance signal" for all research agents
 /// 
 /// Maps to Python's write_research_brief node (lines ~950 in rd-code.py)
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class ResearchBriefAgent
 {
     private readonly OllamaService _llmService;
     private readonly ILogger<ResearchBriefAgent>? _logger;
+    private readonly MetricsService _metrics;
 
-    public ResearchBriefAgent(OllamaService llmService, ILogger<ResearchBriefAgent>? logger = null)
+    protected virtual string AgentName => "ResearchBriefAgent";
+
+    public ResearchBriefAgent(
+        OllamaService llmService, 
+        ILogger<ResearchBriefAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -36,6 +45,9 @@ public class ResearchBriefAgent
         List<ChatMessage> conversationHistory,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
+
         try
         {
             var messagesText = FormatMessagesToString(conversationHistory);
@@ -62,10 +74,13 @@ public class ResearchBriefAgent
                 "ResearchBriefAgent: Research brief generated with {ObjectiveCount} objectives",
                 response.Objectives?.Count ?? 0);
             
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return response;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "ResearchBriefAgent: Error generating research brief");
             throw new InvalidOperationException("Failed to generate research brief from conversation", ex);
         }

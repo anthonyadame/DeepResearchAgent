@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Agents;
@@ -17,21 +18,27 @@ namespace DeepResearchAgent.Agents;
 /// 6. Refines research if needed (iterative)
 /// 
 /// Returns: ResearchOutput with findings and metrics
+/// Enhanced with metrics tracking for observability.
 /// </summary>
 public class ResearcherAgent
 {
     private readonly OllamaService _llmService;
     private readonly ToolInvocationService _toolService;
     private readonly ILogger<ResearcherAgent>? _logger;
+    private readonly MetricsService _metrics;
+
+    protected virtual string AgentName => "ResearcherAgent";
 
     public ResearcherAgent(
         OllamaService llmService,
         ToolInvocationService toolService,
-        ILogger<ResearcherAgent>? logger = null)
+        ILogger<ResearcherAgent>? logger = null,
+        MetricsService? metrics = null)
     {
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _toolService = toolService ?? throw new ArgumentNullException(nameof(toolService));
         _logger = logger;
+        _metrics = metrics ?? new MetricsService();
     }
 
     /// <summary>
@@ -41,6 +48,8 @@ public class ResearcherAgent
         ResearchInput input,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = _metrics.StartTimer();
+        _metrics.RecordRequest(AgentName, "started");
         var output = new ResearchOutput();
         
         try
@@ -95,10 +104,13 @@ public class ResearcherAgent
             _logger?.LogInformation("ResearcherAgent: Research complete. Facts extracted: {Count}, Quality: {Quality:F2}", 
                 output.TotalFactsExtracted, output.AverageQuality);
 
+            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
             return output;
         }
         catch (Exception ex)
         {
+            _metrics.RecordError(AgentName, ex.GetType().Name);
+            _metrics.RecordRequest(AgentName, "failed", stopwatch.Elapsed.TotalMilliseconds);
             _logger?.LogError(ex, "ResearcherAgent: Research failed");
             output.CompletionStatus = "failed";
             throw;
