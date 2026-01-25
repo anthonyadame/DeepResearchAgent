@@ -53,12 +53,3 @@ public class SupervisorState
     /// </summary>
     public bool NeedsQualityRepair { get; set; } = false;
 }
-
-/// <summary>
-/// Simple ChatMessage placeholder for Microsoft.Extensions.AI integration.
-/// </summary>
-public class ChatMessage
-{
-    public required string Role { get; init; }
-    public required string Content { get; init; }
-}

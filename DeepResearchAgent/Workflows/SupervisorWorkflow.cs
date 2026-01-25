@@ -28,6 +28,7 @@ public class SupervisorWorkflow
     private readonly ILightningStateService _stateService;
     private readonly ResearcherWorkflow _researcher;
     private readonly OllamaService _llmService;
+    private readonly ToolInvocationService _toolService;
     private readonly LightningStore? _store;
     private readonly ILogger<SupervisorWorkflow>? _logger;
     private readonly StateManager? _stateManager;
@@ -38,6 +39,7 @@ public class SupervisorWorkflow
         ILightningStateService stateService,
         ResearcherWorkflow researcher,
         OllamaService llmService,
+        SearCrawl4AIService? searchService = null,
         LightningStore? store = null,
         ILogger<SupervisorWorkflow>? logger = null,
         StateManager? stateManager = null,
@@ -52,6 +54,11 @@ public class SupervisorWorkflow
         _stateManager = stateManager;
         _modelConfig = modelConfig ?? new WorkflowModelConfiguration();
         _metrics = metrics ?? new MetricsService();
+        
+        // Initialize tool invocation service for research execution
+        // Create a default search service if not provided
+        var actualSearchService = searchService ?? new SearCrawl4AIService(null);
+        _toolService = new ToolInvocationService(actualSearchService, llmService, null);
 
         _logger?.LogInformation("SupervisorWorkflow initialized with model configuration: Brain={brain}, Tools={tools}, QualityEvaluator={evaluator}, RedTeam={redteam}, ContextPruner={pruner}",
             _modelConfig.SupervisorBrainModel,
@@ -407,8 +414,8 @@ Respond concisely with your decision and reasoning.";
 
     /// <summary>
     /// Step 2: Execute Supervisor Tools: Research, refinement, reflection based on brain decision.
-    /// Handles tool routing and parallel execution.
-    /// Uses the SupervisorToolsModel for tool coordination.
+    /// Handles tool routing and parallel execution using ToolInvocationService.
+    /// Executes WebSearch → Summarization → FactExtraction pipeline.
     /// Maps to Python lines 750-850
     /// </summary>
     public async Task SupervisorToolsAsync(
@@ -419,44 +426,132 @@ Respond concisely with your decision and reasoning.";
     {
         try
         {
-            _logger?.LogDebug("SupervisorTools: executing based on brain decision");
+            _logger?.LogDebug("SupervisorTools: executing research tasks based on brain decision");
 
-            // Parse brain decision to identify needed research
+            // Parse brain decision to identify needed research topics
             var researchTopics = ExtractResearchTopics(brainDecision.Content, state.ResearchBrief);
 
             if (researchTopics.Any())
             {
-                // Execute researchers in parallel
-                _logger?.LogInformation("Spawning {count} researchers", researchTopics.Count);
+                _logger?.LogInformation("Executing tools for {count} research topics", researchTopics.Count);
                 
-                var researchTasks = researchTopics
-                    .Take(3) // Max 3 concurrent researchers
-                    .Select(topic => _researcher.ResearchAsync(topic, researchId, cancellationToken))
-                    .ToList();
-
-                var results = await Task.WhenAll(researchTasks);
-
-                // Aggregate findings
-                foreach (var facts in results)
+                // Execute tools for each topic
+                foreach (var topic in researchTopics.Take(3)) // Max 3 topics per iteration
                 {
-                    state.KnowledgeBase.AddRange(facts);
-                    state.RawNotes.Add($"Research on: {string.Join(", ", researchTopics)}");
+                    try
+                    {
+                        // Step 1: WebSearch for information on topic
+                        _logger?.LogInformation("WebSearch: searching for '{Topic}'", topic);
+                        var searchParams = new Dictionary<string, object>
+                        {
+                            { "query", topic },
+                            { "maxResults", 5 }
+                        };
+                        
+                        var searchResults = await _toolService.InvokeToolAsync(
+                            "websearch", searchParams, cancellationToken);
+                        
+                        if (searchResults is not List<WebSearchResult> results)
+                        {
+                            _logger?.LogWarning("WebSearch returned unexpected type");
+                            continue;
+                        }
+
+                        _logger?.LogInformation("WebSearch found {count} results for '{Topic}'", 
+                            results.Count, topic);
+
+                        // Step 2: For each result, summarize and extract facts
+                        foreach (var result in results)
+                        {
+                            try
+                            {
+                                // Summarize the content
+                                var summaryParams = new Dictionary<string, object>
+                                {
+                                    { "pageContent", result.Content },
+                                    { "maxLength", 300 }
+                                };
+                                
+                                var summarized = await _toolService.InvokeToolAsync(
+                                    "summarize", summaryParams, cancellationToken);
+
+                                if (summarized is not PageSummaryResult summary)
+                                {
+                                    _logger?.LogWarning("Summarization returned unexpected type");
+                                    continue;
+                                }
+
+                                _logger?.LogDebug("Summarized content from: {Url}", result.Url);
+
+                                // Extract facts from the summary
+                                var factParams = new Dictionary<string, object>
+                                {
+                                    { "content", summary.Summary },
+                                    { "topic", topic }
+                                };
+                                
+                                var factResult = await _toolService.InvokeToolAsync(
+                                    "extractfacts", factParams, cancellationToken);
+
+                                if (factResult is not FactExtractionResult extracted)
+                                {
+                                    _logger?.LogWarning("FactExtraction returned unexpected type");
+                                    continue;
+                                }
+
+                                // Add extracted facts to knowledge base
+                                foreach (var fact in extracted.Facts)
+                                {
+                                    var factModel = new Models.FactState
+                                    {
+                                        Content = fact.Statement,
+                                        SourceUrl = result.Url,
+                                        Confidence = fact.Confidence,
+                                        ExtractedAt = DateTime.UtcNow,
+                                        IsDisputed = false
+                                    };
+                                    
+                                    state.KnowledgeBase.Add(factModel);
+                                    _logger?.LogDebug("Added fact: {Statement} (confidence: {Confidence})", 
+                                        fact.Statement.Substring(0, Math.Min(50, fact.Statement.Length)), 
+                                        fact.Confidence);
+                                }
+
+                                _logger?.LogInformation("Extracted {count} facts from {Source}", 
+                                    extracted.Facts.Count, result.Url);
+                            }
+                            catch (Exception resultEx)
+                            {
+                                _logger?.LogWarning(resultEx, "Error processing search result: {Url}", 
+                                    result.Url);
+                            }
+                        }
+                    }
+                    catch (Exception topicEx)
+                    {
+                        _logger?.LogWarning(topicEx, "Error processing topic: {Topic}", topic);
+                    }
                 }
 
-                _logger?.LogInformation("Researchers complete - {count} facts gathered", 
-                    results.Sum(r => r.Count));
+                _logger?.LogInformation("SupervisorTools complete - {count} facts in knowledge base", 
+                    state.KnowledgeBase.Count);
             }
 
-            // Record supervisor reflection/thinking
+            // Record supervisor tool execution
             state.SupervisorMessages.Add(new Models.ChatMessage
             {
                 Role = "tool",
-                Content = $"Executed research on {researchTopics.Count} topics. Updated knowledge base."
+                Content = $"Executed research tools on {researchTopics.Count} topics. Extracted {state.KnowledgeBase.Count} facts into knowledge base."
             });
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "SupervisorTools execution failed");
+            state.SupervisorMessages.Add(new Models.ChatMessage
+            {
+                Role = "tool",
+                Content = $"Tool execution failed: {ex.Message}"
+            });
         }
     }
 

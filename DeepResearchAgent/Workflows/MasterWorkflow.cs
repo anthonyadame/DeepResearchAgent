@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using DeepResearchAgent.Agents;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
@@ -18,6 +19,8 @@ namespace DeepResearchAgent.Workflows;
 /// 4. ExecuteSupervisor - Hand off to supervisor for iterative refinement
 /// 5. GenerateFinalReport - Polish and synthesize findings into final report
 /// 
+/// Phase 5 Enhancement: Add complex agents for research → analysis → report pipeline
+/// 
 /// Maps to Python lines 870-920 (scoping) and 2119-2140 (full integration)
 /// </summary>
 public class MasterWorkflow
@@ -28,6 +31,16 @@ public class MasterWorkflow
     private readonly ILogger<MasterWorkflow>? _logger;
     private readonly StateManager? _stateManager;
     private readonly MetricsService _metrics;
+    
+    // Phase 2 Agents
+    private readonly ClarifyAgent _clarifyAgent;
+    private readonly ResearchBriefAgent _briefAgent;
+    private readonly DraftReportAgent _draftAgent;
+    
+    // Phase 4 Complex Agents
+    private readonly ResearcherAgent _researcherAgent;
+    private readonly AnalystAgent _analystAgent;
+    private readonly ReportAgent _reportAgent;
 
     public MasterWorkflow(
         ILightningStateService stateService,
@@ -35,7 +48,10 @@ public class MasterWorkflow
         OllamaService llmService,
         ILogger<MasterWorkflow>? logger = null,
         StateManager? stateManager = null,
-        MetricsService? metrics = null)
+        MetricsService? metrics = null,
+        ResearcherAgent? researcherAgent = null,
+        AnalystAgent? analystAgent = null,
+        ReportAgent? reportAgent = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
@@ -43,6 +59,17 @@ public class MasterWorkflow
         _logger = logger;
         _stateManager = stateManager;
         _metrics = metrics ?? new MetricsService();
+        
+        // Initialize Phase 2 agents
+        // Note: We pass null for logger to avoid type mismatch since loggers are generic
+        _clarifyAgent = new ClarifyAgent(_llmService, null);
+        _briefAgent = new ResearchBriefAgent(_llmService, null);
+        _draftAgent = new DraftReportAgent(_llmService, null);
+        
+        // Initialize Phase 4 complex agents
+        _researcherAgent = researcherAgent ?? new ResearcherAgent(_llmService, new ToolInvocationService(null, null), null);
+        _analystAgent = analystAgent ?? new AnalystAgent(_llmService, new ToolInvocationService(null, null), null);
+        _reportAgent = reportAgent ?? new ReportAgent(_llmService, new ToolInvocationService(null, null), null);
     }
 
     /// <summary>
@@ -278,7 +305,7 @@ public class MasterWorkflow
 
     /// <summary>
     /// Step 1: Clarify with user - Check if query is detailed enough.
-    /// Uses LLM to evaluate query clarity.
+    /// Uses ClarifyAgent to evaluate query clarity.
     /// </summary>
     public async Task<(bool needsClarification, string message)> ClarifyWithUserAsync(
         string userQuery, CancellationToken cancellationToken)
@@ -293,29 +320,24 @@ public class MasterWorkflow
                 return (true, "Please provide a more detailed research query (at least 10 characters). Include what you want to learn about and any specific focus areas.");
             }
 
-            // Use LLM to evaluate clarity
-            var currentDate = GetTodayString();
-            var clarifyPrompt = PromptTemplates.ClarifyWithUserInstructions
-                .Replace("{messages}", userQuery)
-                .Replace("{date}", currentDate);
-
-            var messages = new List<OllamaChatMessage>
+            // Convert user query to ChatMessage for the agent
+            var conversationHistory = new List<ChatMessage>
             {
-                new() { Role = "system", Content = clarifyPrompt }
+                new ChatMessage { Role = "user", Content = userQuery }
             };
 
-            var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
-            var responseText = response.Content ?? "";
+            // Use ClarifyAgent to evaluate clarity
+            var clarification = await _clarifyAgent.ClarifyAsync(conversationHistory, cancellationToken);
+            
+            _logger?.LogDebug("ClarifyAgent response - NeedClarification: {NeedClarification}", 
+                clarification.NeedClarification);
 
-            _logger?.LogDebug("LLM clarification response: {length} chars", responseText.Length);
-
-            // Simple heuristic: if response suggests clarification, ask for it
-            if (responseText.Contains("\"need_clarification\": true", StringComparison.OrdinalIgnoreCase))                
+            if (clarification.NeedClarification)
             {
-                return (true, responseText);
+                return (true, clarification.Question);
             }
 
-            return (false, "");
+            return (false, clarification.Verification);
         }
         catch (Exception ex)
         {
@@ -326,7 +348,7 @@ public class MasterWorkflow
 
     /// <summary>
     /// Step 2: Write research brief - Transform query into structured research brief.
-    /// Uses LLM to create detailed research direction.
+    /// Uses ResearchBriefAgent to create detailed research direction.
     /// </summary>
     public async Task<string> WriteResearchBriefAsync(string userQuery, CancellationToken cancellationToken)
     {
@@ -334,20 +356,20 @@ public class MasterWorkflow
         {
             _logger?.LogDebug("Step 2: WriteResearchBrief - transforming query to structured brief");
             
-            var currentDate = GetTodayString();
-            var briefPrompt = PromptTemplates.TransformMessagesIntoResearchTopicPrompt
-                .Replace("{messages}", userQuery)
-                .Replace("{date}", currentDate);
-
-            var messages = new List<OllamaChatMessage>
+            // Convert user query to ChatMessage for the agent
+            var conversationHistory = new List<ChatMessage>
             {
-                new() { Role = "system", Content = briefPrompt }
+                new ChatMessage { Role = "user", Content = userQuery }
             };
 
-            var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
-            var researchBrief = response.Content ?? $"Research Brief: {userQuery}";
+            // Use ResearchBriefAgent to generate research brief
+            var researchQuestion = await _briefAgent.GenerateResearchBriefAsync(
+                conversationHistory, cancellationToken);
+            
+            var researchBrief = researchQuestion.ResearchBrief;
 
-            _logger?.LogInformation("Research brief generated: {length} chars", researchBrief.Length);
+            _logger?.LogInformation("Research brief generated with {ObjectiveCount} objectives: {length} chars", 
+                researchQuestion.Objectives?.Count ?? 0, researchBrief.Length);
             
             return researchBrief;
         }
@@ -360,7 +382,7 @@ public class MasterWorkflow
 
     /// <summary>
     /// Step 3: Write initial draft report - Generate "noisy" starting point for diffusion.
-    /// Uses LLM to create initial draft without external research.
+    /// Uses DraftReportAgent to create initial draft without external research.
     /// </summary>
     public async Task<string> WriteDraftReportAsync(string researchBrief, CancellationToken cancellationToken)
     {
@@ -368,22 +390,20 @@ public class MasterWorkflow
         {
             _logger?.LogDebug("Step 3: WriteDraftReport - generating initial draft outline");
             
-            var currentDate = GetTodayString();
-            var draftPrompt = PromptTemplates.DraftReportGenerationPrompt
-                .Replace("{research_brief}", researchBrief)
-                .Replace("{date}", currentDate);
-
-            var messages = new List<OllamaChatMessage>
+            // Create empty conversation history for context (brief is the primary input)
+            var conversationHistory = new List<ChatMessage>
             {
-                new() { Role = "system", Content = draftPrompt }
+                new ChatMessage { Role = "system", Content = $"Research Brief: {researchBrief}" }
             };
 
-            var response = await _llmService.InvokeAsync(messages, cancellationToken: cancellationToken);
-            var draftReport = response.Content ?? $"Initial draft based on: {researchBrief}";
+            // Use DraftReportAgent to generate draft
+            var draftReport = await _draftAgent.GenerateDraftReportAsync(
+                researchBrief, conversationHistory, cancellationToken);
 
-            _logger?.LogInformation("Draft report generated: {length} chars", draftReport.Length);
+            _logger?.LogInformation("Draft report generated with {SectionCount} sections: {length} chars", 
+                draftReport.Sections?.Count ?? 0, draftReport.Content.Length);
             
-            return draftReport;
+            return draftReport.Content;
         }
         catch (Exception ex)
         {
@@ -476,5 +496,88 @@ Research Findings:
     private static string GetTodayString()
     {
         return DateTime.Now.ToString("ddd MMM d, yyyy");
+    }
+
+    /// <summary>
+    /// Phase 5: Execute full pipeline with complex agents.
+    /// Orchestrates ResearcherAgent → AnalystAgent → ReportAgent workflow.
+    /// 
+    /// This is the complete end-to-end pipeline:
+    /// 1. ResearcherAgent - Conducts research and extracts findings
+    /// 2. AnalystAgent - Analyzes findings and synthesizes insights
+    /// 3. ReportAgent - Formats everything into a publication-ready report
+    /// </summary>
+    public async Task<ReportOutput> ExecuteFullPipelineAsync(
+        string topic,
+        string researchBrief,
+        CancellationToken cancellationToken = default)
+    {
+        var researchId = Guid.NewGuid().ToString();
+        _logger?.LogInformation("ExecuteFullPipeline: Starting complex agent pipeline for topic: {Topic}", topic);
+        _metrics.RecordRequest("full_pipeline", "started");
+
+        try
+        {
+            // Step 1: ResearcherAgent - Research the topic
+            _logger?.LogInformation("ExecuteFullPipeline: Step 1 - ResearcherAgent");
+            var researchInput = new ResearchInput
+            {
+                Topic = topic,
+                ResearchBrief = researchBrief,
+                MaxIterations = 3,
+                MinQualityThreshold = 7.0f
+            };
+
+            var researchOutput = await _researcherAgent.ExecuteAsync(researchInput, cancellationToken);
+            _logger?.LogInformation(
+                "ExecuteFullPipeline: ResearcherAgent complete - {FactCount} facts extracted, quality: {Quality:F2}",
+                researchOutput.TotalFactsExtracted,
+                researchOutput.AverageQuality);
+
+            // Step 2: AnalystAgent - Analyze the findings
+            _logger?.LogInformation("ExecuteFullPipeline: Step 2 - AnalystAgent");
+            var analysisInput = new AnalysisInput
+            {
+                Findings = researchOutput.Findings,
+                Topic = topic,
+                ResearchBrief = researchBrief
+            };
+
+            var analysisOutput = await _analystAgent.ExecuteAsync(analysisInput, cancellationToken);
+            _logger?.LogInformation(
+                "ExecuteFullPipeline: AnalystAgent complete - {InsightCount} insights, {ThemeCount} themes, confidence: {Confidence:F2}",
+                analysisOutput.KeyInsights.Count,
+                analysisOutput.ThemesIdentified.Count,
+                analysisOutput.ConfidenceScore);
+
+            // Step 3: ReportAgent - Format into final report
+            _logger?.LogInformation("ExecuteFullPipeline: Step 3 - ReportAgent");
+            var reportInput = new ReportInput
+            {
+                Research = researchOutput,
+                Analysis = analysisOutput,
+                Topic = topic,
+                Author = "Deep Research Agent"
+            };
+
+            var reportOutput = await _reportAgent.ExecuteAsync(reportInput, cancellationToken);
+            _logger?.LogInformation(
+                "ExecuteFullPipeline: ReportAgent complete - {SectionCount} sections, {CitationCount} citations, quality: {Quality:F2}",
+                reportOutput.Sections.Count,
+                reportOutput.Citations.Count,
+                reportOutput.QualityScore);
+
+            _logger?.LogInformation("ExecuteFullPipeline: Complete - Full report generated");
+            _metrics.RecordRequest("full_pipeline", "succeeded");
+            
+            return reportOutput;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "ExecuteFullPipeline: Failed");
+            _metrics.RecordError("full_pipeline", ex.GetType().Name);
+            _metrics.RecordRequest("full_pipeline", "failed");
+            throw;
+        }
     }
 }

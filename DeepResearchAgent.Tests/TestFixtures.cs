@@ -84,13 +84,13 @@ public class TestFixtures
     {
         var mockStore = new Mock<LightningStore>(null);
 
-        var savedFacts = new List<Models.FactState>();
+        var savedFacts = new List<DeepResearchAgent.Models.FactState>();
 
         mockStore
             .Setup(s => s.SaveFactsAsync(
-                It.IsAny<IEnumerable<Models.FactState>>(),
+                It.IsAny<IEnumerable<DeepResearchAgent.Models.FactState>>(),
                 It.IsAny<CancellationToken>()))
-            .Callback<IEnumerable<Models.FactState>, CancellationToken>((facts, _) =>
+            .Callback<IEnumerable<DeepResearchAgent.Models.FactState>, CancellationToken>((facts, _) =>
             {
                 savedFacts.AddRange(facts);
             })
@@ -161,7 +161,7 @@ public class TestFixtures
     /// </summary>
     public static AgentState CreateTestAgentState(string userQuery = "Research quantum computing")
     {
-        return StateFactory.CreateAgentState(new List<Models.ChatMessage>
+        return StateFactory.CreateAgentState(new List<ChatMessage>
         {
             new()
             {
@@ -178,7 +178,7 @@ public class TestFixtures
         string brief = "Test research brief",
         string draft = "Test draft report")
     {
-        return StateFactory.CreateSupervisorState(brief, draft, new List<Models.ChatMessage>());
+        return StateFactory.CreateSupervisorState(brief, draft, new List<ChatMessage>());
     }
 
     /// <summary>
@@ -220,7 +220,7 @@ public class TestFixtures
 
         var (researcher, _, _) = CreateMockResearcherWorkflow();
 
-        var supervisor = new SupervisorWorkflow(stateService, researcher, llm, store, logger);
+        var supervisor = new SupervisorWorkflow(stateService, researcher, llm, null, store, logger);
 
         return (supervisor, llm, store);
     }
@@ -245,9 +245,9 @@ public class TestFixtures
     /// <summary>
     /// Create test facts for assertion.
     /// </summary>
-    public static List<Models.FactState> CreateTestFacts(int count = 5)
+    public static List<DeepResearchAgent.Models.FactState> CreateTestFacts(int count = 5)
     {
-        var facts = new List<Models.FactState>();
+        var facts = new List<DeepResearchAgent.Models.FactState>();
         for (int i = 0; i < count; i++)
         {
             facts.Add(StateFactory.CreateFact(
@@ -363,7 +363,7 @@ public static class WorkflowAssertions
     }
 
     public static void AssertFactsExtracted(
-        IEnumerable<Models.FactState> facts,
+        IEnumerable<DeepResearchAgent.Models.FactState> facts,
         int minimumCount = 1)
     {
         Assert.NotNull(facts);
