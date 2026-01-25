@@ -6,6 +6,7 @@ using DeepResearchAgent.Services.Telemetry;
 using DeepResearchAgent.Services.VectorDatabase;
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Workflows;
+using DeepResearchAgent.Workflows.Abstractions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -118,8 +119,21 @@ services.AddSingleton<ResearcherWorkflow>();
 services.AddSingleton<SupervisorWorkflow>();
 services.AddSingleton<MasterWorkflow>();
 
+// Register workflow orchestration layer
+services.AddSingleton<IWorkflowOrchestrator, WorkflowOrchestrator>();
+services.AddSingleton<WorkflowPipelineOrchestrator>();
+services.AddSingleton<MasterWorkflowDefinition>();
+services.AddSingleton<SupervisorWorkflowDefinition>();
+services.AddSingleton<ResearcherWorkflowDefinition>();
+
 // Build service provider
 var serviceProvider = services.BuildServiceProvider();
+
+// Initialize workflow orchestrator with registered workflows
+var orchestrator = serviceProvider.GetRequiredService<IWorkflowOrchestrator>();
+orchestrator.RegisterWorkflow(serviceProvider.GetRequiredService<MasterWorkflowDefinition>());
+orchestrator.RegisterWorkflow(serviceProvider.GetRequiredService<SupervisorWorkflowDefinition>());
+orchestrator.RegisterWorkflow(serviceProvider.GetRequiredService<ResearcherWorkflowDefinition>());
 
 Console.WriteLine("✓ Services initialized");
 Console.WriteLine($"✓ Ollama connection configured ({ollamaBaseUrl})");
