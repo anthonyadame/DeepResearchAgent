@@ -1,6 +1,7 @@
 using DeepResearchAgent.Agents;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.Logging;
@@ -19,18 +20,22 @@ public class Phase5PipelineIntegrationTests
     private readonly Mock<ToolInvocationService> _mockToolService;
     private readonly Mock<ILightningStateService> _mockStateService;
     private readonly Mock<SupervisorWorkflow> _mockSupervisor;
+    private readonly Mock<IWebSearchProvider> _mockSearchProvider;
     private readonly Mock<ILogger<MasterWorkflow>> _mockLogger;
     private readonly MasterWorkflow _masterWorkflow;
 
     public Phase5PipelineIntegrationTests()
     {
         _mockLlmService = new Mock<OllamaService>(null);
-        _mockToolService = new Mock<ToolInvocationService>(null, null);
+        _mockToolService = new Mock<ToolInvocationService>(Mock.Of<IWebSearchProvider>(), null);
         _mockStateService = new Mock<ILightningStateService>();
+        _mockSearchProvider = new Mock<IWebSearchProvider>();
+        _mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
         _mockSupervisor = new Mock<SupervisorWorkflow>(
             _mockStateService.Object, 
             null, 
-            _mockLlmService.Object);
+            _mockLlmService.Object,
+            _mockSearchProvider.Object);
         _mockLogger = new Mock<ILogger<MasterWorkflow>>();
 
         // Create complex agents
@@ -42,6 +47,7 @@ public class Phase5PipelineIntegrationTests
             _mockStateService.Object,
             _mockSupervisor.Object,
             _mockLlmService.Object,
+            _mockSearchProvider.Object,
             _mockLogger.Object,
             null,
             null,

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using DeepResearchAgent.Agents;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.Logging;
@@ -30,15 +31,18 @@ public class PerformanceTests
         _output = output;
 
         var mockLlmService = new Mock<OllamaService>(null);
-        var mockToolService = new Mock<ToolInvocationService>(null, null);
+        var mockToolService = new Mock<ToolInvocationService>(Mock.Of<IWebSearchProvider>(), null);
         var mockStateService = new Mock<ILightningStateService>();
+        var mockSearchProvider = new Mock<IWebSearchProvider>();
+        mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
 
         SetupMocks(mockLlmService, mockToolService, mockStateService);
 
         _masterWorkflow = new MasterWorkflow(
             mockStateService.Object,
             Mock.Of<SupervisorWorkflow>(),
-            mockLlmService.Object);
+            mockLlmService.Object,
+            mockSearchProvider.Object);
 
         _researcherAgent = new ResearcherAgent(mockLlmService.Object, mockToolService.Object);
         _analystAgent = new AnalystAgent(mockLlmService.Object, mockToolService.Object);

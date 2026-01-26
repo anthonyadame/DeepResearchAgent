@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Configuration;
@@ -39,7 +40,7 @@ public class SupervisorWorkflow
         ILightningStateService stateService,
         ResearcherWorkflow researcher,
         OllamaService llmService,
-        SearCrawl4AIService? searchService = null,
+        IWebSearchProvider? searchProvider = null,
         LightningStore? store = null,
         ILogger<SupervisorWorkflow>? logger = null,
         StateManager? stateManager = null,
@@ -56,9 +57,12 @@ public class SupervisorWorkflow
         _metrics = metrics ?? new MetricsService();
         
         // Initialize tool invocation service for research execution
-        // Create a default search service if not provided
-        var actualSearchService = searchService ?? new SearCrawl4AIService(null);
-        _toolService = new ToolInvocationService(actualSearchService, llmService, null);
+        if (searchProvider == null)
+        {
+            throw new ArgumentNullException(nameof(searchProvider), 
+                "IWebSearchProvider must be provided. Use dependency injection or provide an explicit instance.");
+        }
+        _toolService = new ToolInvocationService(searchProvider, llmService, null);
 
         _logger?.LogInformation("SupervisorWorkflow initialized with model configuration: Brain={brain}, Tools={tools}, QualityEvaluator={evaluator}, RedTeam={redteam}, ContextPruner={pruner}",
             _modelConfig.SupervisorBrainModel,

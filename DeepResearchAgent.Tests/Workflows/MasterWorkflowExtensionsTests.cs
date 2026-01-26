@@ -1,6 +1,7 @@
 using DeepResearchAgent.Agents;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,7 @@ public class MasterWorkflowExtensionsTests
     private readonly Mock<ToolInvocationService> _mockToolService;
     private readonly Mock<ILightningStateService> _mockStateService;
     private readonly Mock<SupervisorWorkflow> _mockSupervisor;
+    private readonly Mock<IWebSearchProvider> _mockSearchProvider;
     private readonly Mock<Microsoft.Extensions.Logging.ILogger> _mockLogger;
     
     private readonly MasterWorkflow _masterWorkflow;
@@ -31,13 +33,15 @@ public class MasterWorkflowExtensionsTests
     public MasterWorkflowExtensionsTests()
     {
         _mockLlmService = new Mock<OllamaService>(null);
-        _mockToolService = new Mock<ToolInvocationService>(null, null);
+        _mockToolService = new Mock<ToolInvocationService>(Mock.Of<IWebSearchProvider>(), null);
         _mockStateService = new Mock<ILightningStateService>();
+        _mockSearchProvider = new Mock<IWebSearchProvider>();
+        _mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
         _mockSupervisor = new Mock<SupervisorWorkflow>(
             _mockStateService.Object,
             Mock.Of<ResearcherWorkflow>(),
             _mockLlmService.Object,
-            Mock.Of<LightningStore>(),
+            _mockSearchProvider.Object,
             null,
             null);
         _mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger>();
@@ -47,7 +51,8 @@ public class MasterWorkflowExtensionsTests
         _masterWorkflow = new MasterWorkflow(
             _mockStateService.Object,
             _mockSupervisor.Object,
-            _mockLlmService.Object);
+            _mockLlmService.Object,
+            _mockSearchProvider.Object);
 
         _researcherAgent = new ResearcherAgent(_mockLlmService.Object, _mockToolService.Object);
         _analystAgent = new AnalystAgent(_mockLlmService.Object, _mockToolService.Object);

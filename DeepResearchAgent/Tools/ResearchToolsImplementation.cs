@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Models;
 using Microsoft.Extensions.Logging;
 
@@ -11,23 +12,23 @@ namespace DeepResearchAgent.Tools;
 /// </summary>
 public class ResearchToolsImplementation
 {
-    private readonly SearCrawl4AIService _searchService;
+    private readonly IWebSearchProvider _searchProvider;
     private readonly OllamaService _llmService;
     private readonly ILogger<ResearchToolsImplementation>? _logger;
 
     public ResearchToolsImplementation(
-        SearCrawl4AIService searchService,
+        IWebSearchProvider searchProvider,
         OllamaService llmService,
         ILogger<ResearchToolsImplementation>? logger = null)
     {
-        _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
+        _searchProvider = searchProvider ?? throw new ArgumentNullException(nameof(searchProvider));
         _llmService = llmService ?? throw new ArgumentNullException(nameof(llmService));
         _logger = logger;
     }
 
     /// <summary>
     /// WebSearchTool: Search the web for information on a topic.
-    /// Integrates with SearCrawl4AIService to fetch and parse web results.
+    /// Integrates with the configured web search provider to fetch results.
     /// </summary>
     [Description("Search the web for information on a specific topic")]
     public async Task<List<WebSearchResult>> WebSearchAsync(
@@ -35,28 +36,23 @@ public class ResearchToolsImplementation
         string query,
         [Description("Maximum number of results to return (default: 10)")]
         int maxResults = 10,
+        [Description("Optional list of topics to constrain the search")]
+        List<string>? topics = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            _logger?.LogInformation("WebSearchTool: Searching for '{Query}' with max {MaxResults} results", 
-                query, maxResults);
+            _logger?.LogInformation(
+                "WebSearchTool: Searching for '{Query}' with max {MaxResults} results using provider '{Provider}'. Topics: {Topics}",
+                query,
+                maxResults,
+                _searchProvider.ProviderName,
+                topics != null ? string.Join(", ", topics) : "none");
 
-            var response = await _searchService.SearchAsync(query, maxResults, cancellationToken);
-            
-            // Convert SearXNGResponse results to WebSearchResult list
-            var results = (response?.Results ?? new List<SearchResult>())
-                .Select(r => new WebSearchResult
-                {
-                    Title = r.Title,
-                    Url = r.Url,
-                    Content = r.Content ?? string.Empty,
-                    Engine = "searxng"
-                })
-                .ToList();
-            
+            var results = await _searchProvider.SearchAsync(query, maxResults, topics, cancellationToken);
+
             _logger?.LogInformation("WebSearchTool: Found {ResultCount} results", results.Count);
-            
+
             return results;
         }
         catch (Exception ex)

@@ -1,4 +1,5 @@
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Tools;
 using Microsoft.Extensions.Logging;
@@ -13,17 +14,18 @@ namespace DeepResearchAgent.Tests.Tools;
 /// </summary>
 public class ResearchToolsImplementationTests
 {
-    private readonly Mock<SearCrawl4AIService> _mockSearchService;
+    private readonly Mock<IWebSearchProvider> _mockSearchProvider;
     private readonly Mock<OllamaService> _mockLlmService;
     private readonly Mock<ILogger<ResearchToolsImplementation>> _mockLogger;
     private readonly ResearchToolsImplementation _tools;
 
     public ResearchToolsImplementationTests()
     {
-        _mockSearchService = new Mock<SearCrawl4AIService>(null);
+        _mockSearchProvider = new Mock<IWebSearchProvider>();
+        _mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
         _mockLlmService = new Mock<OllamaService>(null);
         _mockLogger = new Mock<ILogger<ResearchToolsImplementation>>();
-        _tools = new ResearchToolsImplementation(_mockSearchService.Object, _mockLlmService.Object, _mockLogger.Object);
+        _tools = new ResearchToolsImplementation(_mockSearchProvider.Object, _mockLlmService.Object, _mockLogger.Object);
     }
 
     #region WebSearchTool Tests
@@ -33,28 +35,27 @@ public class ResearchToolsImplementationTests
     {
         // Arrange
         var query = "quantum computing advances 2024";
-        var sxngResponse = new SearXNGResponse
+        var webSearchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
+            new WebSearchResult
             {
-                new SearchResult
-                {
-                    Title = "Quantum Computing Breakthrough",
-                    Url = "https://example.com/quantum",
-                    Content = "IBM announced new quantum processor..."
-                },
-                new SearchResult
-                {
-                    Title = "Quantum Computing Market Report",
-                    Url = "https://example.com/report",
-                    Content = "Market analysis shows growth in quantum..."
-                }
+                Title = "Quantum Computing Breakthrough",
+                Url = "https://example.com/quantum",
+                Content = "IBM announced new quantum processor...",
+                Engine = "test"
+            },
+            new WebSearchResult
+            {
+                Title = "Quantum Computing Market Report",
+                Url = "https://example.com/report",
+                Content = "Market analysis shows growth in quantum...",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(sxngResponse);
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(webSearchResults);
 
         // Act
         var results = await _tools.WebSearchAsync(query, maxResults: 10);
@@ -64,8 +65,8 @@ public class ResearchToolsImplementationTests
         Assert.Equal(2, results.Count);
         Assert.Contains("Quantum", results[0].Title);
 
-        _mockSearchService.Verify(
-            s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<CancellationToken>()),
+        _mockSearchProvider.Verify(
+            s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -75,14 +76,17 @@ public class ResearchToolsImplementationTests
         // Arrange
         var query = "test query";
         var manyResults = Enumerable.Range(1, 20)
-            .Select(i => new SearchResult { Title = $"Result {i}", Url = $"https://example.com/{i}" })
+            .Select(i => new WebSearchResult 
+            { 
+                Title = $"Result {i}", 
+                Url = $"https://example.com/{i}",
+                Engine = "test"
+            })
             .ToList();
 
-        var sxngResponse = new SearXNGResponse { Results = manyResults };
-
-        _mockSearchService
-            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(sxngResponse);
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(manyResults);
 
         // Act
         var results = await _tools.WebSearchAsync(query, maxResults: 5);
@@ -98,8 +102,8 @@ public class ResearchToolsImplementationTests
         var query = "test query";
         var exception = new HttpRequestException("Search failed");
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(query, It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(exception);
 
         // Act & Assert
@@ -420,8 +424,8 @@ public class ResearchToolsImplementationTests
     public async Task WebSearchAsync_WhenExceptionThrown_IncludesOriginalException()
     {
         // Arrange
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Network error"));
 
         // Act & Assert

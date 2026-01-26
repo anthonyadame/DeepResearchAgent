@@ -1,4 +1,5 @@
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Models;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -12,17 +13,18 @@ namespace DeepResearchAgent.Tests.Services;
 /// </summary>
 public class ToolInvocationServiceTests
 {
-    private readonly Mock<SearCrawl4AIService> _mockSearchService;
+    private readonly Mock<IWebSearchProvider> _mockSearchProvider;
     private readonly Mock<OllamaService> _mockLlmService;
     private readonly Mock<ILogger<ToolInvocationService>> _mockLogger;
     private readonly ToolInvocationService _service;
 
     public ToolInvocationServiceTests()
     {
-        _mockSearchService = new Mock<SearCrawl4AIService>(null);
+        _mockSearchProvider = new Mock<IWebSearchProvider>();
+        _mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
         _mockLlmService = new Mock<OllamaService>(null);
         _mockLogger = new Mock<ILogger<ToolInvocationService>>();
-        _service = new ToolInvocationService(_mockSearchService.Object, _mockLlmService.Object, _mockLogger.Object);
+        _service = new ToolInvocationService(_mockSearchProvider.Object, _mockLlmService.Object, _mockLogger.Object);
     }
 
     #region Tool Discovery Tests
@@ -74,21 +76,19 @@ public class ToolInvocationServiceTests
             { "maxResults", 5 }
         };
 
-        var searchResults = new SearXNGResponse
+        var searchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
-            {
-                new SearchResult 
-                { 
-                    Title = "Quantum Computing",
-                    Url = "https://example.com/quantum",
-                    Content = "Article about quantum computing..."
-                }
+            new WebSearchResult 
+            { 
+                Title = "Quantum Computing",
+                Url = "https://example.com/quantum",
+                Content = "Article about quantum computing...",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync("quantum computing", 5, It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync("quantum computing", 5, It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         // Act
@@ -111,10 +111,10 @@ public class ToolInvocationServiceTests
             { "maxResults", 10 }
         };
 
-        var searchResults = new SearXNGResponse { Results = new List<SearchResult>() };
+        var searchResults = new List<WebSearchResult>();
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         // Act - test different cases
@@ -348,8 +348,8 @@ public class ToolInvocationServiceTests
             { "maxResults", 10 }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("Search failed"));
 
         // Act & Assert

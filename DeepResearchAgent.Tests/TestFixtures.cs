@@ -1,5 +1,6 @@
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
 using Microsoft.Extensions.Logging;
@@ -207,6 +208,43 @@ public class TestFixtures
     }
 
     /// <summary>
+    /// Create a mock web search provider for testing.
+    /// </summary>
+    public static IWebSearchProvider CreateMockWebSearchProvider()
+    {
+        var mockProvider = new Mock<IWebSearchProvider>();
+        mockProvider.Setup(p => p.ProviderName).Returns("test");
+        
+        mockProvider
+            .Setup(p => p.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<int>(),
+                It.IsAny<List<string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<WebSearchResult>
+            {
+                new()
+                {
+                    Title = "Test Result 1",
+                    Url = "https://example.com/test1",
+                    Content = "This is test content 1",
+                    Engine = "test",
+                    Score = 0.95
+                },
+                new()
+                {
+                    Title = "Test Result 2",
+                    Url = "https://example.com/test2",
+                    Content = "This is test content 2",
+                    Engine = "test",
+                    Score = 0.87
+                }
+            });
+
+        return mockProvider.Object;
+    }
+
+    /// <summary>
     /// Create test supervisor workflow with mocks.
     /// </summary>
     public static (SupervisorWorkflow supervisor, OllamaService llm, LightningStore store)
@@ -217,10 +255,11 @@ public class TestFixtures
         var store = CreateMockLightningStore();
         var stateService = CreateMockLightningStateService();
         var logger = CreateMockLogger<SupervisorWorkflow>();
+        var searchProvider = CreateMockWebSearchProvider();
 
         var (researcher, _, _) = CreateMockResearcherWorkflow();
 
-        var supervisor = new SupervisorWorkflow(stateService, researcher, llm, null, store, logger);
+        var supervisor = new SupervisorWorkflow(stateService, researcher, llm, searchProvider, store, logger);
 
         return (supervisor, llm, store);
     }
@@ -233,11 +272,11 @@ public class TestFixtures
     {
         var llm = CreateMockOllamaService();
         var stateService = CreateMockLightningStateService();
-        var logger = CreateMockLogger<MasterWorkflow>();
+        var searchProvider = CreateMockWebSearchProvider();
 
         var (supervisor, _, _) = CreateMockSupervisorWorkflow();
 
-        var master = new MasterWorkflow(stateService, supervisor, llm, logger);
+        var master = new MasterWorkflow(stateService, supervisor, llm, searchProvider);
 
         return (master, llm);
     }

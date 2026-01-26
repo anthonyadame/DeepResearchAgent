@@ -1,5 +1,6 @@
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Models;
+using DeepResearchAgent.Services.WebSearch;
 using Microsoft.Extensions.Logging;
 
 namespace DeepResearchAgent.Services;
@@ -14,11 +15,11 @@ public class ToolInvocationService
     private readonly ILogger<ToolInvocationService>? _logger;
 
     public ToolInvocationService(
-        SearCrawl4AIService searchService,
+        IWebSearchProvider searchProvider,
         OllamaService llmService,
         ILogger<ToolInvocationService>? logger = null)
     {
-        _tools = new ResearchToolsImplementation(searchService, llmService, null);
+        _tools = new ResearchToolsImplementation(searchProvider, llmService, null);
         _logger = logger;
     }
 
@@ -130,8 +131,9 @@ public class ToolInvocationService
     {
         var query = GetRequiredParameter<string>(parameters, "query");
         var maxResults = GetOptionalParameter(parameters, "maxResults", 10);
+        var topics = GetOptionalParameter(parameters, "topics", (List<string>?)null);
 
-        return await _tools.WebSearchAsync(query, maxResults, cancellationToken);
+        return await _tools.WebSearchAsync(query, maxResults, topics, cancellationToken);
     }
 
     private async Task<object> QualityEvaluationToolAsync(

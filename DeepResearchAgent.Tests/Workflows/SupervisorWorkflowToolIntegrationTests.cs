@@ -1,5 +1,6 @@
 using DeepResearchAgent.Models;
 using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Workflows;
 using DeepResearchAgent.Services.StateManagement;
 using Microsoft.Extensions.Logging;
@@ -17,7 +18,7 @@ public class SupervisorWorkflowToolIntegrationTests
     private readonly Mock<ILightningStateService> _mockStateService;
     private readonly Mock<ResearcherWorkflow> _mockResearcher;
     private readonly Mock<OllamaService> _mockLlmService;
-    private readonly Mock<SearCrawl4AIService> _mockSearchService;
+    private readonly Mock<IWebSearchProvider> _mockSearchProvider;
     private readonly Mock<ILogger<SupervisorWorkflow>> _mockLogger;
     private readonly SupervisorWorkflow _workflow;
 
@@ -26,14 +27,15 @@ public class SupervisorWorkflowToolIntegrationTests
         _mockStateService = new Mock<ILightningStateService>();
         _mockResearcher = new Mock<ResearcherWorkflow>(null, null, null);
         _mockLlmService = new Mock<OllamaService>(null);
-        _mockSearchService = new Mock<SearCrawl4AIService>(null);
+        _mockSearchProvider = new Mock<IWebSearchProvider>();
+        _mockSearchProvider.Setup(x => x.ProviderName).Returns("test");
         _mockLogger = new Mock<ILogger<SupervisorWorkflow>>();
         
         _workflow = new SupervisorWorkflow(
             _mockStateService.Object,
             _mockResearcher.Object,
             _mockLlmService.Object,
-            _mockSearchService.Object,
+            _mockSearchProvider.Object,
             null,
             _mockLogger.Object
         );
@@ -54,21 +56,19 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "We need to search for latest quantum computing developments and IBM Willow"
         };
 
-        var searchResults = new SearXNGResponse
+        var searchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
+            new WebSearchResult
             {
-                new SearchResult
-                {
-                    Title = "IBM Willow Quantum Breakthrough",
-                    Url = "https://example.com/willow",
-                    Content = "IBM announced a significant quantum chip advancement..."
-                }
+                Title = "IBM Willow Quantum Breakthrough",
+                Url = "https://example.com/willow",
+                Content = "IBM announced a significant quantum chip advancement...",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         _mockLlmService
@@ -124,27 +124,26 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "Research recent climate data and ecosystem impacts"
         };
 
-        var searchResults = new SearXNGResponse
+        var searchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
+            new WebSearchResult
             {
-                new SearchResult
-                {
-                    Title = "Climate Change Report 2024",
-                    Url = "https://example.com/climate",
-                    Content = "Global temperatures rising at alarming rate. Ecosystems facing stress..."
-                },
-                new SearchResult
-                {
-                    Title = "Biodiversity Loss Study",
-                    Url = "https://example.com/biodiversity",
-                    Content = "Rapid biodiversity loss observed in tropical regions..."
-                }
+                Title = "Climate Change Report 2024",
+                Url = "https://example.com/climate",
+                Content = "Global temperatures rising at alarming rate. Ecosystems facing stress...",
+                Engine = "test"
+            },
+            new WebSearchResult
+            {
+                Title = "Biodiversity Loss Study",
+                Url = "https://example.com/biodiversity",
+                Content = "Rapid biodiversity loss observed in tropical regions...",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         var summaryCounter = 0;
@@ -169,7 +168,8 @@ public class SupervisorWorkflowToolIntegrationTests
                 It.IsAny<List<OllamaChatMessage>>(),
                 It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
-            .Returns((List<OllamaChatMessage> _, string? _, CancellationToken _) =>
+            .Returns((List<OllamaChatMessage> _, string? _,
+                CancellationToken _) =>
             {
                 factCounter++;
                 return Task.FromResult(new FactExtractionResult
@@ -193,7 +193,7 @@ public class SupervisorWorkflowToolIntegrationTests
         // Assert
         Assert.NotEmpty(state.KnowledgeBase);
         Assert.Equal(2, state.KnowledgeBase.Count); // 2 search results processed
-        _mockSearchService.Verify(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+        _mockSearchProvider.Verify(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -209,10 +209,10 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "Research very specific topic"
         };
 
-        var emptyResults = new SearXNGResponse { Results = new List<SearchResult>() };
+        var emptyResults = new List<WebSearchResult>();
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(emptyResults);
 
         // Act
@@ -233,8 +233,8 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "Research topic"
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("Search service unavailable"));
 
         // Act
@@ -259,21 +259,19 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "Search for information"
         };
 
-        var searchResults = new SearXNGResponse
+        var searchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
+            new WebSearchResult
             {
-                new SearchResult
-                {
-                    Title = "Test Article",
-                    Url = "https://example.com/test",
-                    Content = "Test content"
-                }
+                Title = "Test Article",
+                Url = "https://example.com/test",
+                Content = "Test content",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         _mockLlmService
@@ -335,21 +333,19 @@ public class SupervisorWorkflowToolIntegrationTests
             Content = "Investigate quantum computing, AI safety, and climate change impacts"
         };
 
-        var searchResults = new SearXNGResponse
+        var searchResults = new List<WebSearchResult>
         {
-            Results = new List<SearchResult>
+            new WebSearchResult
             {
-                new SearchResult
-                {
-                    Title = "Topic 1",
-                    Url = "https://example.com/topic1",
-                    Content = "Content 1"
-                }
+                Title = "Topic 1",
+                Url = "https://example.com/topic1",
+                Content = "Content 1",
+                Engine = "test"
             }
         };
 
-        _mockSearchService
-            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _mockSearchProvider
+            .Setup(s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(searchResults);
 
         _mockLlmService
@@ -383,8 +379,8 @@ public class SupervisorWorkflowToolIntegrationTests
 
         // Assert
         // Should limit to max 3 topics per iteration
-        _mockSearchService.Verify(
-            s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+        _mockSearchProvider.Verify(
+            s => s.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<List<string>>(), It.IsAny<CancellationToken>()),
             Times.Between(1, 3, Moq.Range.Inclusive)); // Could be 1-3 searches depending on topic extraction
     }
 
