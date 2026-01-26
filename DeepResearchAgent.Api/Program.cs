@@ -1,6 +1,7 @@
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Workflows;
+using DeepResearchAgent.Api.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,13 +17,34 @@ var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
     ?? "http://localhost:8090";
 
-// Services
+// Core Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient());
+
+// API Services - Phase 3
+builder.Services.AddApiServices();
+builder.Services.AddApiCors("ApiCorsPolicy");
+builder.Services.AddApiDocumentation();
+builder.Services.AddApiCompression();
+builder.Services.AddApiHealthChecks();
+builder.Services.AddLogging();
+
+// CORS Configuration for UI
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowUI", builder =>
+    {
+        builder.AllowAnyOrigin()
+               .AllowAnyMethod()
+               .AllowAnyHeader();
+    });
+});
+
+// DLL Services (original)
 builder.Services.AddSingleton<OllamaService>(_ => new OllamaService(
     baseUrl: ollamaBaseUrl,
     defaultModel: ollamaDefaultModel
@@ -48,15 +70,31 @@ builder.Services.AddSingleton<MasterWorkflow>();
 
 var app = builder.Build();
 
+// Middleware Pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
 }
 
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Deep Research Agent API v1");
+});
+
+// API Middleware
+app.UseApiMiddleware();
+
+// Response Compression
+app.UseApiCompression();
+
+// Enable CORS
+app.UseCors("AllowUI");
 
 app.UseHttpsRedirection();
+
+// Health Checks
+app.MapApiHealthChecks();
 
 app.MapControllers();
 

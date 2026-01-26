@@ -272,6 +272,61 @@ services:
       retries: 5
       start_period: 30s
 
+  # Deep Research Agent API
+  api:
+    build:
+      context: .
+      dockerfile: DeepResearchAgent.Api/Dockerfile
+    container_name: research-api
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_URLS=http://+:5000
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Ollama__BaseUrl=http://ollama:11434
+      - Ollama__DefaultModel=gpt-oss:20b
+      - SearXNG__BaseUrl=http://searxng:8080
+      - Crawl4AI__BaseUrl=http://localhost:11235
+      - Lightning__ServerUrl=http://localhost:8090
+    depends_on:
+      ollama:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    networks:
+      - research-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Deep Research Agent UI
+  ui:
+    build:
+      context: .
+      dockerfile: DeepResearchAgent.UI/Dockerfile
+    container_name: research-ui
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:5000/api
+    depends_on:
+      - api
+    networks:
+      - research-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173/index.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
 
 networks:
   research-network:
