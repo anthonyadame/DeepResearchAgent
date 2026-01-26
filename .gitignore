@@ -91,3 +91,5 @@ TestResults/
 appsettings.Development.json
 appsettings.Local.json
 *.local.json
+/searxng/.env
+/searxng/settings.yml

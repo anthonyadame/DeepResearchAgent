@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'APO Dashboards'
+    orgId: 1
+    folder: 'Deep Research Agent'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

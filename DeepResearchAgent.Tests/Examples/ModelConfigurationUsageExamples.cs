@@ -260,7 +260,8 @@ public class ModelConfigurationUsageExamples
         mock.Setup(r => r.ResearchAsync(
                 It.IsAny<string>(),
                 It.IsAny<string>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                It.IsAny<ApoExecutionOptions>()))
             .ReturnsAsync((IReadOnlyList<Models.FactState>)emptyList);
         return mock.Object;
     }

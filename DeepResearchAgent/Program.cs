@@ -21,6 +21,8 @@ Console.WriteLine("Powered by Microsoft Agent-Lightning\n");
 
 var configuration = new ConfigurationBuilder()
     .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: true)
+    .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.websearch.json"), optional: true, reloadOnChange: true)
+    .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.apo.json"), optional: true, reloadOnChange: true)
     .AddEnvironmentVariables()
     .Build();
 
@@ -31,6 +33,10 @@ var crawl4aiBaseUrl = configuration["Crawl4AI:BaseUrl"] ?? "http://localhost:112
 var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
     ?? "http://localhost:8090";
+
+// APO configuration
+var apoConfig = new LightningAPOConfig();
+configuration.GetSection("Lightning:APO").Bind(apoConfig);
 
 // Vector database configuration
 var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", false);
@@ -51,6 +57,7 @@ services.AddLogging(logging =>
 
 // Register core services
 services.AddMemoryCache();
+services.AddSingleton(apoConfig); // Register APO config
 services.AddSingleton<OllamaService>(_ => new OllamaService(
     baseUrl: ollamaBaseUrl,
     defaultModel: ollamaDefaultModel
@@ -103,15 +110,32 @@ services.AddSingleton<IVectorDatabaseFactory>(sp =>
 });
 
 // Register Agent-Lightning services
-services.AddSingleton<IAgentLightningService>(sp => new AgentLightningService(
-    sp.GetRequiredService<HttpClient>(),
-    lightningServerUrl
-));
+services.AddHttpClient<IAgentLightningService, AgentLightningService>();
+services.AddSingleton<IAgentLightningService>(sp =>
+{
+    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AgentLightningService));
+    var apo = sp.GetRequiredService<LightningAPOConfig>();
+    var metrics = sp.GetRequiredService<MetricsService>();
+    
+    // Configure HTTP client timeout based on APO config
+    httpClient.Timeout = TimeSpan.FromSeconds(apo.ResourceLimits.TaskTimeoutSeconds);
+    
+    return new AgentLightningService(
+        httpClient,
+        lightningServerUrl,
+        clientId: null,
+        apo: apo,
+        metrics: metrics);
+});
+
 services.AddSingleton<ILightningVERLService>(sp => new LightningVERLService(
     sp.GetRequiredService<HttpClient>(),
     lightningServerUrl
 ));
 services.AddSingleton<ILightningStateService, LightningStateService>();
+
+// Register APO auto-scaler as hosted service (if enabled)
+services.AddHostedService<LightningApoScaler>();
 
 // Register existing workflow classes
 services.AddSingleton<ResearcherWorkflow>();
@@ -135,7 +159,12 @@ else
     Console.WriteLine("ℹ Vector database disabled (configure VectorDatabase:Enabled to enable)");
 }
 Console.WriteLine($"✓ Agent-Lightning integration configured ({lightningServerUrl})");
-Console.WriteLine("✓ APO (Automatic Performance Optimization) enabled");
+Console.WriteLine($"✓ APO (Automatic Performance Optimization) enabled - Strategy: {apoConfig.Strategy}");
+Console.WriteLine($"✓ APO Resource Limits - MaxConcurrent: {apoConfig.ResourceLimits.MaxConcurrentTasks}, Timeout: {apoConfig.ResourceLimits.TaskTimeoutSeconds}s");
+if (apoConfig.AutoScaling.Enabled)
+{
+    Console.WriteLine($"✓ APO Auto-Scaling enabled - {apoConfig.AutoScaling.MinInstances}-{apoConfig.AutoScaling.MaxInstances} instances");
+}
 Console.WriteLine("✓ VERL (Verification and Reasoning Layer) enabled");
 Console.WriteLine("✓ Workflows initialized\n");
 

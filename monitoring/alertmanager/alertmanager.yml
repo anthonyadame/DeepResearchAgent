@@ -1,0 +1,95 @@
+global:
+  resolve_timeout: 5m
+  # SMTP configuration (optional - configure for email alerts)
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@example.com'
+  smtp_auth_username: 'your-email@gmail.com'
+  smtp_auth_password: 'your-app-password'
+  smtp_require_tls: true
+
+# Templates for alert notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  routes:
+    # Critical alerts go to multiple channels
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      continue: true
+    
+    # Warning alerts
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+    
+    # Info alerts (low priority)
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+
+# Receiver configurations
+receivers:
+  - name: 'default'
+    # Webhook receiver (can integrate with Slack, Teams, etc.)
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+
+  - name: 'critical-alerts'
+    # Email for critical alerts
+    email_configs:
+      - to: 'oncall@example.com'
+        headers:
+          subject: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Critical Alert</h2>
+          <p><strong>Alert:</strong> {{ .GroupLabels.alertname }}</p>
+          <p><strong>Severity:</strong> {{ .CommonLabels.severity }}</p>
+          <p><strong>Component:</strong> {{ .CommonLabels.component }}</p>
+          <p><strong>Description:</strong> {{ range .Alerts }}{{ .Annotations.description }}{{ end }}</p>
+    # Slack webhook (optional)
+    # slack_configs:
+    #   - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+    #     channel: '#critical-alerts'
+    #     title: '🚨 Critical APO Alert'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'team@example.com'
+        headers:
+          subject: '⚠️  WARNING: {{ .GroupLabels.alertname }}'
+    # Slack webhook (optional)
+    # slack_configs:
+    #   - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+    #     channel: '#warnings'
+
+  - name: 'info-alerts'
+    # Log only - no notifications
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/info'
+        send_resolved: false
+
+# Inhibition rules (suppress alerts)
+inhibit_rules:
+  # If critical alert is firing, suppress warning alerts
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'component']
+  
+  # If server is down, suppress all other alerts for that component
+  - source_match:
+      alertname: 'LightningServerDown'
+    target_match_re:
+      component: 'apo.*'
+    equal: ['instance']

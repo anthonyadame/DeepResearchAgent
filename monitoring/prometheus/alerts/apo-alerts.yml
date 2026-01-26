@@ -1,0 +1,171 @@
+groups:
+  - name: apo_performance
+    interval: 30s
+    rules:
+      # High latency alert
+      - alert: ApoHighLatency
+        expr: histogram_quantile(0.95, rate(dra_apo_task_latency_ms_bucket[5m])) > 5000
+        for: 2m
+        labels:
+          severity: warning
+          component: apo
+        annotations:
+          summary: "APO task latency is high"
+          description: "P95 latency is {{ $value }}ms, exceeding 5000ms threshold for 2 minutes"
+
+      # Very high latency (critical)
+      - alert: ApoVeryHighLatency
+        expr: histogram_quantile(0.95, rate(dra_apo_task_latency_ms_bucket[5m])) > 10000
+        for: 1m
+        labels:
+          severity: critical
+          component: apo
+        annotations:
+          summary: "APO task latency is critically high"
+          description: "P95 latency is {{ $value }}ms, exceeding 10000ms threshold"
+
+      # High failure rate
+      - alert: ApoHighFailureRate
+        expr: |
+          rate(dra_apo_tasks_failed[5m]) / 
+          (rate(dra_apo_tasks_completed[5m]) + rate(dra_apo_tasks_failed[5m])) * 100 > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: apo
+        annotations:
+          summary: "APO task failure rate is high"
+          description: "Failure rate is {{ $value | humanizePercentage }}, exceeding 10% threshold"
+
+      # Critical failure rate
+      - alert: ApoCriticalFailureRate
+        expr: |
+          rate(dra_apo_tasks_failed[5m]) / 
+          (rate(dra_apo_tasks_completed[5m]) + rate(dra_apo_tasks_failed[5m])) * 100 > 25
+        for: 1m
+        labels:
+          severity: critical
+          component: apo
+        annotations:
+          summary: "APO task failure rate is critical"
+          description: "Failure rate is {{ $value | humanizePercentage }}, exceeding 25% threshold"
+
+      # High retry rate
+      - alert: ApoHighRetryRate
+        expr: rate(dra_apo_retries[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: apo
+        annotations:
+          summary: "APO retry rate is elevated"
+          description: "Retry rate is {{ $value }} retries/sec, indicating potential issues with Lightning server"
+
+      # Concurrency limit approaching
+      - alert: ApoConcurrencyLimitApproaching
+        expr: max_over_time(dra_apo_concurrency[5m]) > 8
+        for: 5m
+        labels:
+          severity: info
+          component: apo
+        annotations:
+          summary: "APO concurrency approaching limit"
+          description: "Concurrent tasks reached {{ $value }}, approaching configured limit. Consider scaling up."
+
+      # Concurrency limit reached
+      - alert: ApoConcurrencyLimitReached
+        expr: max_over_time(dra_apo_concurrency[5m]) >= 10
+        for: 2m
+        labels:
+          severity: warning
+          component: apo
+        annotations:
+          summary: "APO concurrency limit reached"
+          description: "Concurrent tasks at maximum ({{ $value }}). Tasks may be queued. Scale up immediately."
+
+      # Low throughput
+      - alert: ApoLowThroughput
+        expr: rate(dra_apo_tasks_completed[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: info
+          component: apo
+        annotations:
+          summary: "APO throughput is low"
+          description: "Task completion rate is {{ $value }} tasks/sec, unusually low. Check for issues."
+
+      # No tasks being processed
+      - alert: ApoNoTasksProcessed
+        expr: rate(dra_apo_tasks_submitted[5m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          component: apo
+        annotations:
+          summary: "No APO tasks being submitted"
+          description: "No tasks submitted in last 15 minutes. System may be idle or broken."
+
+      # VERL verification failures
+      - alert: ApoVerlHighFailureRate
+        expr: |
+          rate(dra_apo_verifications{success="false"}[5m]) / 
+          rate(dra_apo_verifications[5m]) * 100 > 20
+        for: 5m
+        labels:
+          severity: warning
+          component: apo-verl
+        annotations:
+          summary: "VERL verification failure rate is high"
+          description: "VERL failure rate is {{ $value | humanizePercentage }}, indicating quality issues"
+
+  - name: apo_autoscaling
+    interval: 60s
+    rules:
+      # Scale up recommendation
+      - alert: ApoScaleUpRecommended
+        expr: |
+          avg_over_time(dra_apo_concurrency[10m]) > 7 and
+          rate(dra_apo_tasks_submitted[5m]) > rate(dra_apo_tasks_completed[5m])
+        for: 5m
+        labels:
+          severity: info
+          component: apo-autoscaling
+        annotations:
+          summary: "APO scale-up recommended"
+          description: "High concurrency ({{ $value }}) and backlog detected. Consider scaling up."
+
+      # Scale down recommendation
+      - alert: ApoScaleDownRecommended
+        expr: avg_over_time(dra_apo_concurrency[10m]) < 2
+        for: 30m
+        labels:
+          severity: info
+          component: apo-autoscaling
+        annotations:
+          summary: "APO scale-down opportunity"
+          description: "Low concurrency ({{ $value }}) sustained for 30 minutes. Consider scaling down to save resources."
+
+  - name: apo_health
+    interval: 30s
+    rules:
+      # Lightning server unreachable
+      - alert: LightningServerDown
+        expr: up{job="lightning-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: lightning-server
+        annotations:
+          summary: "Lightning server is down"
+          description: "Lightning server has been unreachable for 1 minute. APO functionality impacted."
+
+      # Deep Research Agent down
+      - alert: DeepResearchAgentDown
+        expr: up{job="deep-research-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: deep-research-agent
+        annotations:
+          summary: "Deep Research Agent is down"
+          description: "Deep Research Agent has been unreachable for 1 minute."

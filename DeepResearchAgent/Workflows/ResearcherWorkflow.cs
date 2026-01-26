@@ -36,6 +36,8 @@ public class ResearcherWorkflow
     private readonly IEmbeddingService? _embeddingService;
     private readonly ILogger<ResearcherWorkflow>? _logger;
     private readonly MetricsService _metrics;
+    private readonly IAgentLightningService? _lightningService;
+    private readonly LightningAPOConfig? _apoConfig;
 
     public ResearcherWorkflow(
         ILightningStateService stateService,
@@ -45,7 +47,9 @@ public class ResearcherWorkflow
         IVectorDatabaseService? vectorDb = null,
         IEmbeddingService? embeddingService = null,
         ILogger<ResearcherWorkflow>? logger = null,
-        MetricsService? metrics = null)
+        MetricsService? metrics = null,
+        IAgentLightningService? lightningService = null,
+        LightningAPOConfig? apoConfig = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _searchService = searchService ?? throw new ArgumentNullException(nameof(searchService));
@@ -55,6 +59,8 @@ public class ResearcherWorkflow
         _embeddingService = embeddingService;
         _logger = logger;
         _metrics = metrics ?? new MetricsService();
+        _lightningService = lightningService;
+        _apoConfig = apoConfig;
     }
 
     /// <summary>
@@ -64,7 +70,8 @@ public class ResearcherWorkflow
     public async Task<IReadOnlyList<Models.FactState>> ResearchAsync(
         string topic,
         string? researchId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ApoExecutionOptions? apoOptions = null)
     {
         var localResearchId = researchId ?? Guid.NewGuid().ToString();
         _metrics.RecordRequest("researcher", "started");
@@ -72,6 +79,35 @@ public class ResearcherWorkflow
         var stopwatch = _metrics.StartTimer();
 
         _logger?.LogInformation("ResearcherWorkflow starting for topic: {topic}, Research ID: {researchId}", topic, localResearchId);
+
+        // Submit APO task if Lightning integration is enabled
+        if (_lightningService != null && _apoConfig?.Enabled == true)
+        {
+            var apoTask = new AgentTask
+            {
+                Name = "researcher",
+                Description = $"Research topic: {topic}",
+                Input = new Dictionary<string, object> 
+                { 
+                    ["topic"] = topic, 
+                    ["researchId"] = localResearchId 
+                },
+                VerificationRequired = _apoConfig.Strategy != OptimizationStrategy.HighPerformance
+            };
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _lightningService.SubmitTaskAsync("researcher", apoTask, apoOptions);
+                    _metrics.RecordApoTaskSubmitted(_apoConfig.Strategy.ToString());
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Failed to submit APO task for research");
+                }
+            }, cancellationToken);
+        }
 
         try
         {
