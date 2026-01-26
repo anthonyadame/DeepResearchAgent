@@ -31,7 +31,8 @@ public class MasterWorkflow
     private readonly ILogger<MasterWorkflow>? _logger;
     private readonly StateManager? _stateManager;
     private readonly MetricsService _metrics;
-    
+    private readonly SearCrawl4AIService _searCrawl4AIService;
+
     // Phase 2 Agents
     private readonly ClarifyAgent _clarifyAgent;
     private readonly ResearchBriefAgent _briefAgent;
@@ -51,7 +52,8 @@ public class MasterWorkflow
         MetricsService? metrics = null,
         ResearcherAgent? researcherAgent = null,
         AnalystAgent? analystAgent = null,
-        ReportAgent? reportAgent = null)
+        ReportAgent? reportAgent = null,
+        SearCrawl4AIService searCrawl4AIService = null)
     {
         _stateService = stateService ?? throw new ArgumentNullException(nameof(stateService));
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
@@ -59,16 +61,17 @@ public class MasterWorkflow
         _logger = logger;
         _stateManager = stateManager;
         _metrics = metrics ?? new MetricsService();
-        
+        _searCrawl4AIService = searCrawl4AIService;
+
         // Initialize Phase 2 agents with metrics support
         _clarifyAgent = new ClarifyAgent(_llmService, null, _metrics);
         _briefAgent = new ResearchBriefAgent(_llmService, null, _metrics);
         _draftAgent = new DraftReportAgent(_llmService, null, _metrics);
         
         // Initialize Phase 4 complex agents with metrics support
-        _researcherAgent = researcherAgent ?? new ResearcherAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
-        _analystAgent = analystAgent ?? new AnalystAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
-        _reportAgent = reportAgent ?? new ReportAgent(_llmService, new ToolInvocationService(null, null), null, _metrics);
+        _researcherAgent = researcherAgent ?? new ResearcherAgent(_llmService, new ToolInvocationService(_searCrawl4AIService, _llmService), null, _metrics);
+        _analystAgent = analystAgent ?? new AnalystAgent(_llmService, new ToolInvocationService(_searCrawl4AIService, _llmService), null, _metrics);
+        _reportAgent = reportAgent ?? new ReportAgent(_llmService, new ToolInvocationService(_searCrawl4AIService, _llmService), null, _metrics);
     }
 
     /// <summary>

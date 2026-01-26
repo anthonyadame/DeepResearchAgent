@@ -4,6 +4,7 @@ using DeepResearchAgent.Prompts;
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.Telemetry;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace DeepResearchAgent.Agents;
 
@@ -60,22 +61,117 @@ public class ResearchBriefAgent
             _logger?.LogInformation("ResearchBriefAgent: Generating research brief from {MessageCount} messages", 
                 conversationHistory.Count);
             
-            // Convert ChatMessage to OllamaChatMessage for the service
             var ollamaMessages = new List<OllamaChatMessage>
             {
                 new OllamaChatMessage { Role = "user", Content = prompt }
             };
             
-            var response = await _llmService.InvokeWithStructuredOutputAsync<ResearchQuestion>(
-                ollamaMessages,
-                cancellationToken: cancellationToken);
-            
+            // Primary path: expected schema
+            ResearchQuestion? response = null;
+            try
+            {
+                response = await _llmService.InvokeWithStructuredOutputAsync<ResearchQuestion>(
+                    ollamaMessages,
+                    cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Structured parse as ResearchQuestion failed; attempting fallback mapping");
+            }
+
+            if (response is not null)
+            {
+                _logger?.LogInformation(
+                    "ResearchBriefAgent: Research brief generated with {ObjectiveCount} objectives",
+                    response.Objectives?.Count ?? 0);
+                
+                _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
+                return response;
+            }
+
+            // Fallback: map alternate shape like { question, scope:[], preferences:[] }
+            var rawMessage = await _llmService.InvokeAsync(ollamaMessages, cancellationToken: cancellationToken);
+            var rawJson = rawMessage.Content ?? "{}";
+
+            // Strip accidental code fences
+            if (rawJson.StartsWith("```"))
+            {
+                rawJson = rawJson.Replace("```json", "").Replace("```", "").Trim();
+            }
+
+            using var doc = JsonDocument.Parse(rawJson);
+            var root = doc.RootElement;
+
+            // Extract alternate fields
+            var question = root.TryGetProperty("question", out var qEl) && qEl.ValueKind == JsonValueKind.String
+                ? qEl.GetString()
+                : null;
+
+            // scope could be array or string
+            string? scopeString = null;
+            if (root.TryGetProperty("scope", out var scopeEl))
+            {
+                if (scopeEl.ValueKind == JsonValueKind.Array)
+                {
+                    var parts = scopeEl.EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString())
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .ToArray();
+                    if (parts.Length > 0)
+                        scopeString = string.Join("; ", parts);
+                }
+                else if (scopeEl.ValueKind == JsonValueKind.String)
+                {
+                    scopeString = scopeEl.GetString();
+                }
+            }
+
+            // preferences can be appended to the brief as constraints
+            string? prefsString = null;
+            if (root.TryGetProperty("preferences", out var prefEl) && prefEl.ValueKind == JsonValueKind.Array)
+            {
+                var prefs = prefEl.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToArray();
+                if (prefs.Length > 0)
+                    prefsString = "- Preferences: " + string.Join("; ", prefs);
+            }
+
+            // Build research_brief from available fields
+            var briefParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(question))
+                briefParts.Add(question!);
+            if (!string.IsNullOrWhiteSpace(scopeString))
+                briefParts.Add($"Scope: {scopeString}");
+            if (!string.IsNullOrWhiteSpace(prefsString))
+                briefParts.Add(prefsString!);
+
+            var researchBrief = briefParts.Count > 0
+                ? string.Join(" | ", briefParts)
+                : "Formal research brief could not be extracted; proceed using conversation-derived context.";
+
+            var normalized = new ResearchQuestion
+            {
+                ResearchBrief = researchBrief,
+                Objectives = new List<string>
+                {
+                    "Define research scope and constraints from user intent",
+                    "Identify key comparative dimensions and regulatory impacts",
+                    "Plan sources prioritizing academic and official industry reports"
+                },
+                Scope = scopeString,
+                CreatedAt = DateTime.UtcNow
+            };
+
             _logger?.LogInformation(
-                "ResearchBriefAgent: Research brief generated with {ObjectiveCount} objectives",
-                response.Objectives?.Count ?? 0);
-            
-            _metrics.RecordRequest(AgentName, "succeeded", stopwatch.Elapsed.TotalMilliseconds);
-            return response;
+                "ResearchBriefAgent: Fallback brief constructed with {ObjectiveCount} objectives",
+                normalized.Objectives.Count);
+
+            _metrics.RecordRequest(AgentName, "succeeded_fallback", stopwatch.Elapsed.TotalMilliseconds);
+            return normalized;
         }
         catch (Exception ex)
         {

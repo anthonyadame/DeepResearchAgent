@@ -252,7 +252,29 @@ static async Task CheckOllamaConnection(ServiceProvider serviceProvider, string 
             {
                 Console.WriteLine("⚠ No models found. Run: ollama pull mistral");
             }
-            
+
+            foreach (var model in models.Where(x => x.Contains("mistral") || x.Contains("gpt-oss")).Take(2))
+            {
+                var message = new List<OllamaChatMessage>
+                {
+                    new() { Role = "user", Content = "Say 'Hello from Deep Research Agent!' in one sentence." }
+                };
+
+                var modelInfo = await ollamaService.InvokeAsync(message,model);
+                Console.WriteLine($"\n➤ Model Info for '{model}':");
+                Console.WriteLine(JsonSerializer.Serialize(modelInfo.Content, new JsonSerializerOptions { WriteIndented = true }));
+            }
+
+            // Test invocation
+            Console.WriteLine("\n➤ Testing LLM invocation...");
+            var testMessages = new List<OllamaChatMessage>
+            {
+                new() { Role = "user", Content = "Say 'Hello from Deep Research Agent!' in one sentence." }
+            };
+
+            var response = await ollamaService.InvokeAsync(testMessages);
+            Console.WriteLine($"✓ Response: {response.Content}");
+
             Console.WriteLine("\n✅ OLLAMA CONNECTION: SUCCESS");
         }
         else
@@ -410,7 +432,7 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
         
         if (string.IsNullOrEmpty(query))
         {
-            query = "Summarize the latest advancements in transformer architectures";
+            query = TestPrompts.ComplexQuery;
             Console.WriteLine($"Using default query: {query}");
         }
 
@@ -420,6 +442,14 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
         Console.WriteLine(new string('-', 60));
 
         var result = await masterWorkflow.RunAsync(query, CancellationToken.None);
+
+        if(string.IsNullOrEmpty(result) && result.Contains($"Clarification needed:"))
+        {
+            var clarifiedQuery = TestPrompts.ClarifiedQuery;
+
+            result = await masterWorkflow.RunAsync(clarifiedQuery, CancellationToken.None);
+        }
+
 
         Console.WriteLine("✓ Workflow execution completed successfully.\n");
         Console.WriteLine("📝 Result:\n");
@@ -462,4 +492,22 @@ static async Task RunAllHealthChecks(
     Console.WriteLine("\n" + new string('═', 60));
     Console.WriteLine("🏥 HEALTH CHECK SUMMARY COMPLETE");
     Console.WriteLine(new string('═', 60));
+}
+
+
+/// <summary>
+/// All prompt templates used throughout the deep research agent system.
+/// These are C# ports of the original Python prompts.
+/// </summary>
+public static class TestPrompts
+{
+    /// <summary>
+    /// This prompt guides the first agent in our workflow, which decides if it has enough information from the user.
+    /// clarify_with_user_instructions
+    /// </summary>
+    public static string ComplexQuery => @"Conduct a deep analysis of the 'Splinternet' phenomenon's impact on global semiconductor supply chains by 2028.
+                Specifically contrast TSMC's diversification strategy against Intel's IDM 2.0 model under 2024-2025 US export controls,
+                and predict the resulting shift in insurance liability models for cross-border wafer shipments.";
+
+    public static string ClarifiedQuery => @"";
 }
