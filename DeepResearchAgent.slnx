@@ -56,6 +56,9 @@
     <File Path="BuildDoc/WEB_API_DOCUMENTATION.md" />
     <File Path="BuildDoc/WORKFLOW_INTEGRATION_COMPLETE.md" />
     <File Path="BuildDoc/WORKFLOW_STATE_INTEGRATION_GUIDE.md" />
+    <File Path="DeepResearchAgent.Api/QUICK_START.md" />
+    <File Path="DeepResearchAgent.Api/SWAGGER_500_ERROR_FIX.md" />
+    <File Path="DeepResearchAgent.Api/SWAGGER_CONFIGURATION.md" />
     <File Path="DeepResearchAgent/Services/README_SEARCRAWL4AI.md" />
   </Folder>
 
@@ -71,6 +74,53 @@
     <File Path="lightning-server/requirements.txt" />
     <File Path="lightning-server/server.py" />
   </Folder>
+
+  <Folder Name="/DeepResearchAgent.UI/">
+    <File Path="DeepResearchAgent.UI/.env.example" />
+    <File Path="DeepResearchAgent.UI/.env.local" />
+    <File Path="DeepResearchAgent.UI/.env.local.example" />
+    <File Path="DeepResearchAgent.UI/.gitignore" />
+    <File Path="DeepResearchAgent.UI/DEVELOPMENT.md" />
+    <File Path="DeepResearchAgent.UI/Dockerfile" />
+    <File Path="DeepResearchAgent.UI/index.html" />
+    <File Path="DeepResearchAgent.UI/package-lock.json" />
+    <File Path="DeepResearchAgent.UI/package.json" />
+    <File Path="DeepResearchAgent.UI/postcss.config.js" />
+    <File Path="DeepResearchAgent.UI/README.md" />
+    <File Path="DeepResearchAgent.UI/tailwind.config.ts" />
+    <File Path="DeepResearchAgent.UI/tsconfig.json" />
+    <File Path="DeepResearchAgent.UI/tsconfig.node.json" />
+    <File Path="DeepResearchAgent.UI/vite.config.ts" />
+    
+  </Folder>
+
+	<Folder Name="/DeepResearchAgent.UI/src/">
+    </Folder>
+
+	<Folder Name="/DeepResearchAgent.UI/src/components/">
+	  <File Path="DeepResearchAgent.UI/src/components/ChatDialog.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/ConfigurationDialog.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/FileUploadModal.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/InputBar.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/MessageBubble.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/MessageList.tsx" />
+	  <File Path="DeepResearchAgent.UI/src/components/Sidebar.tsx" />
+    </Folder>
+
+
+	<Folder Name="/DeepResearchAgent.UI/src/hooks/">
+    </Folder>
+
+	<Folder Name="/DeepResearchAgent.UI/src/services/">
+	  <File Path="DeepResearchAgent.UI/src/services/api.ts" />
+    </Folder>
+
+	<Folder Name="/DeepResearchAgent.UI/src/types/">
+	  <File Path="DeepResearchAgent.UI/src/types/index.ts" />
+    </Folder>
+
+
+
 
 
 	<Folder Name="/lightning-server/tests/">

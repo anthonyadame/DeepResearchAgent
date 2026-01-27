@@ -1,5 +1,7 @@
 using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
+using DeepResearchAgent.Services.WebSearch;
+using DeepResearchAgent.Services.Telemetry;
 using DeepResearchAgent.Workflows;
 using DeepResearchAgent.Api.Extensions;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,7 +22,6 @@ var lightningServerUrl = configuration["Lightning:ServerUrl"]
 // Core Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient());
@@ -64,9 +65,54 @@ builder.Services.AddSingleton<ILightningVERLService>(sp => new LightningVERLServ
     lightningServerUrl
 ));
 builder.Services.AddSingleton<ILightningStateService, LightningStateService>();
-builder.Services.AddSingleton<ResearcherWorkflow>();
-builder.Services.AddSingleton<SupervisorWorkflow>();
-builder.Services.AddSingleton<MasterWorkflow>();
+
+// Metrics Service
+builder.Services.AddSingleton<MetricsService>();
+
+// Web Search Provider (required by workflows)
+builder.Services.AddSingleton<IWebSearchProvider>(sp => new SearCrawl4AIAdapter(
+    sp.GetRequiredService<SearCrawl4AIService>(),
+    sp.GetRequiredService<ILogger<SearCrawl4AIAdapter>>()
+));
+
+// Workflow Services with proper dependency injection
+builder.Services.AddSingleton<ResearcherWorkflow>(sp => new ResearcherWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<SearCrawl4AIService>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<LightningStore>(),
+    vectorDb: null,
+    embeddingService: null,
+    sp.GetRequiredService<ILogger<ResearcherWorkflow>>(),
+    sp.GetRequiredService<MetricsService>(),
+    sp.GetRequiredService<IAgentLightningService>(),
+    apoConfig: null
+));
+
+builder.Services.AddSingleton<SupervisorWorkflow>(sp => new SupervisorWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<ResearcherWorkflow>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<IWebSearchProvider>(),
+    sp.GetRequiredService<LightningStore>(),
+    sp.GetRequiredService<ILogger<SupervisorWorkflow>>(),
+    stateManager: null,
+    modelConfig: null,
+    sp.GetRequiredService<MetricsService>()
+));
+
+builder.Services.AddSingleton<MasterWorkflow>(sp => new MasterWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<SupervisorWorkflow>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<IWebSearchProvider>(),
+    sp.GetRequiredService<ILogger<MasterWorkflow>>(),
+    stateManager: null,
+    sp.GetRequiredService<MetricsService>(),
+    researcherAgent: null,
+    analystAgent: null,
+    reportAgent: null
+));
 
 var app = builder.Build();
 
@@ -76,10 +122,22 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
+// Swagger - Always enabled (UI and JSON)
 app.UseSwagger();
-app.UseSwaggerUI(c =>
+app.UseSwaggerUI(options =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Deep Research Agent API v1");
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Deep Research Agent API v1");
+    options.DocumentTitle = "Deep Research Agent API";
+    options.RoutePrefix = string.Empty; // Set Swagger UI at root
+    options.DisplayOperationId();
+    options.DisplayRequestDuration();
+    options.EnableTryItOutByDefault();
+    options.EnableDeepLinking();
+    options.EnableFilter();
+    options.ShowExtensions();
+    options.DefaultModelsExpandDepth(2);
+    options.DefaultModelExpandDepth(2);
+    options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
 });
 
 // API Middleware

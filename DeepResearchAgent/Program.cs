@@ -4,8 +4,12 @@ using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Services.Telemetry;
 using DeepResearchAgent.Services.VectorDatabase;
+using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Tools;
 using DeepResearchAgent.Workflows;
+using DeepResearchAgent.Workflows.Extensions;
+using DeepResearchAgent.Agents;
+using DeepResearchAgent.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -63,13 +67,33 @@ services.AddSingleton<OllamaService>(_ => new OllamaService(
     defaultModel: ollamaDefaultModel
 ));
 services.AddSingleton<HttpClient>();
+
+// Register LightningStore (required by ResearcherWorkflow and SupervisorWorkflow)
+services.AddSingleton<LightningStoreOptions>(sp => new LightningStoreOptions
+{
+    DataDirectory = configuration["LightningStore:DataDirectory"] ?? "data",
+    FileName = configuration["LightningStore:FileName"] ?? "lightningstore.json",
+    LightningServerUrl = lightningServerUrl,
+    UseLightningServer = configuration.GetValue("LightningStore:UseLightningServer", true),
+    ResourceNamespace = configuration["LightningStore:ResourceNamespace"] ?? "facts"
+});
+
+services.AddSingleton<ILightningStore>(sp => new LightningStore(
+    sp.GetRequiredService<LightningStoreOptions>(),
+    sp.GetRequiredService<HttpClient>()
+));
+
+services.AddSingleton<LightningStore>(sp => (LightningStore)sp.GetRequiredService<ILightningStore>());
+
 services.AddSingleton<SearCrawl4AIService>(sp => new SearCrawl4AIService(
     sp.GetRequiredService<HttpClient>(),
     searxngBaseUrl,
     crawl4aiBaseUrl
 ));
-services.AddSingleton<LightningStore>();
-services.AddSingleton<MetricsService>();
+
+// Register web search providers (SearXNG + Tavily) and resolver
+services.AddHttpClient("SearXNG");          // used by TavilySearchService
+services.AddWebSearchProviders(configuration);   // wires IWebSearchProvider/IWebSearchProviderResolver
 
 // Register embedding service
 services.AddSingleton<IEmbeddingService>(sp => new OllamaEmbeddingService(
@@ -138,9 +162,80 @@ services.AddSingleton<ILightningStateService, LightningStateService>();
 services.AddHostedService<LightningApoScaler>();
 
 // Register existing workflow classes
-services.AddSingleton<ResearcherWorkflow>();
-services.AddSingleton<SupervisorWorkflow>();
-services.AddSingleton<MasterWorkflow>();
+services.AddSingleton<MetricsService>();
+
+// Register supporting services for workflows
+services.AddSingleton<StateManager>();
+services.AddSingleton<WorkflowModelConfiguration>();
+
+// Register Phase 4 agents (ResearcherAgent, AnalystAgent, ReportAgent)
+services.AddSingleton<ResearcherAgent>(sp => new ResearcherAgent(
+    sp.GetRequiredService<OllamaService>(),
+    new ToolInvocationService(
+        sp.GetRequiredService<IWebSearchProvider>(),
+        sp.GetRequiredService<OllamaService>()
+    ),
+    sp.GetService<ILogger<ResearcherAgent>>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+services.AddSingleton<AnalystAgent>(sp => new AnalystAgent(
+    sp.GetRequiredService<OllamaService>(),
+    new ToolInvocationService(
+        sp.GetRequiredService<IWebSearchProvider>(),
+        sp.GetRequiredService<OllamaService>()
+    ),
+    sp.GetService<ILogger<AnalystAgent>>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+services.AddSingleton<ReportAgent>(sp => new ReportAgent(
+    sp.GetRequiredService<OllamaService>(),
+    new ToolInvocationService(
+        sp.GetRequiredService<IWebSearchProvider>(),
+        sp.GetRequiredService<OllamaService>()
+    ),
+    sp.GetService<ILogger<ReportAgent>>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+services.AddSingleton<ResearcherWorkflow>(sp => new ResearcherWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<SearCrawl4AIService>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<LightningStore>(),
+    sp.GetService<IVectorDatabaseService>(),
+    sp.GetService<IEmbeddingService>(),
+    sp.GetService<ILogger<ResearcherWorkflow>>(),
+    sp.GetRequiredService<MetricsService>(),
+    sp.GetService<IAgentLightningService>(),
+    sp.GetService<LightningAPOConfig>()
+));
+
+services.AddSingleton<SupervisorWorkflow>(sp => new SupervisorWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<ResearcherWorkflow>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<IWebSearchProvider>(),
+    sp.GetRequiredService<LightningStore>(),
+    sp.GetService<ILogger<SupervisorWorkflow>>(),
+    sp.GetRequiredService<StateManager>(),
+    sp.GetRequiredService<WorkflowModelConfiguration>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+services.AddSingleton<MasterWorkflow>(sp => new MasterWorkflow(
+    sp.GetRequiredService<ILightningStateService>(),
+    sp.GetRequiredService<SupervisorWorkflow>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<IWebSearchProvider>(),
+    sp.GetService<ILogger<MasterWorkflow>>(),
+    sp.GetRequiredService<StateManager>(),
+    sp.GetRequiredService<MetricsService>(),
+    sp.GetService<ResearcherAgent>(),
+    sp.GetService<AnalystAgent>(),
+    sp.GetService<ReportAgent>()
+));
 
 // Build service provider
 var serviceProvider = services.BuildServiceProvider();

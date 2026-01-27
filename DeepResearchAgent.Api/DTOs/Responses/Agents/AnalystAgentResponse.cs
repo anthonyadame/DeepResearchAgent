@@ -74,52 +74,6 @@ public class AnalystAgentResponse
 }
 
 /// <summary>
-/// Identified theme from analysis.
-/// </summary>
-public class ThemeDto
-{
-    public string Name { get; set; } = string.Empty;
-    public string? Description { get; set; }
-    public List<string> RelatedFacts { get; set; } = new();
-    public double Relevance { get; set; }
-}
-
-/// <summary>
-/// Detected contradiction in findings.
-/// </summary>
-public class ContradictionDto
-{
-    public string Statement1 { get; set; } = string.Empty;
-    public string Statement2 { get; set; } = string.Empty;
-    public string? Source1 { get; set; }
-    public string? Source2 { get; set; }
-    public string? Resolution { get; set; }
-    public double Severity { get; set; }
-}
-
-/// <summary>
-/// Synthesized insight from analysis.
-/// </summary>
-public class InsightDto
-{
-    public string InsightStatement { get; set; } = string.Empty;
-    public List<string> SupportingFacts { get; set; } = new();
-    public double ConfidenceScore { get; set; }
-    public string? ImplicationsSummary { get; set; }
-}
-
-/// <summary>
-/// Identified pattern in findings.
-/// </summary>
-public class PatternDto
-{
-    public string PatternDescription { get; set; } = string.Empty;
-    public List<string> ExamplesInFindings { get; set; } = new();
-    public double Consistency { get; set; }
-    public string? SignificanceLevel { get; set; }
-}
-
-/// <summary>
 /// Confidence metrics for analysis.
 /// </summary>
 public class AnalysisConfidenceDto

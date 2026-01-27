@@ -52,13 +52,3 @@ public class LlmInvokeRequest
     /// </summary>
     public bool EnableDetailedLogging { get; set; } = false;
 }
-
-/// <summary>
-/// Chat message for LLM.
-/// </summary>
-public class ChatMessageDto
-{
-    public required string Role { get; set; }
-    public required string Content { get; set; }
-    public DateTime? Timestamp { get; set; }
-}

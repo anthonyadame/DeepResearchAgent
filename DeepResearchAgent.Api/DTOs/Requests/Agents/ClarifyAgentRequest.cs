@@ -27,24 +27,3 @@ public class ClarifyAgentRequest
     /// </summary>
     public int? TimeoutSeconds { get; set; }
 }
-
-/// <summary>
-/// Chat message in conversation history.
-/// </summary>
-public class ChatMessageDto
-{
-    /// <summary>
-    /// Message role: "user" or "assistant".
-    /// </summary>
-    public required string Role { get; set; }
-
-    /// <summary>
-    /// Message content.
-    /// </summary>
-    public required string Content { get; set; }
-
-    /// <summary>
-    /// When the message was sent.
-    /// </summary>
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-}

@@ -159,39 +159,3 @@ public class ResearcherWorkflowResponse
     /// </summary>
     public long DurationMilliseconds { get; set; }
 }
-
-/// <summary>
-/// A fact from research findings.
-/// </summary>
-public class FactDto
-{
-    /// <summary>
-    /// Unique fact ID.
-    /// </summary>
-    public string Id { get; set; } = Guid.NewGuid().ToString();
-
-    /// <summary>
-    /// The fact statement.
-    /// </summary>
-    public string Statement { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Source URL if available.
-    /// </summary>
-    public string? SourceUrl { get; set; }
-
-    /// <summary>
-    /// Confidence score (0.0-1.0).
-    /// </summary>
-    public double ConfidenceScore { get; set; }
-
-    /// <summary>
-    /// Topic/category.
-    /// </summary>
-    public string? Category { get; set; }
-
-    /// <summary>
-    /// When the fact was extracted.
-    /// </summary>
-    public DateTime ExtractedAt { get; set; } = DateTime.UtcNow;
-}

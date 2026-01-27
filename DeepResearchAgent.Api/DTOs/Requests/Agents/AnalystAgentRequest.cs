@@ -57,34 +57,3 @@ public class AnalystAgentRequest
     /// </summary>
     public int? TimeoutSeconds { get; set; }
 }
-
-/// <summary>
-/// A research finding/fact for analysis.
-/// </summary>
-public class FindingDto
-{
-    /// <summary>
-    /// The finding statement.
-    /// </summary>
-    public required string Statement { get; set; }
-
-    /// <summary>
-    /// Source URL where finding came from.
-    /// </summary>
-    public string? SourceUrl { get; set; }
-
-    /// <summary>
-    /// Confidence score (0.0-1.0).
-    /// </summary>
-    public double ConfidenceScore { get; set; } = 0.5;
-
-    /// <summary>
-    /// Topic/category this finding belongs to.
-    /// </summary>
-    public string? Topic { get; set; }
-
-    /// <summary>
-    /// Optional supporting evidence.
-    /// </summary>
-    public string? SupportingEvidence { get; set; }
-}

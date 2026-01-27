@@ -1,63 +1,31 @@
 # Build stage
-FROM ubuntu:24.04 AS builder
-
-ENV DEBIAN_FRONTEND=noninteractive \
-    DOTNET_VERSION=8.0
-
-RUN apt-get update && apt-get install -y \
-    wget \
-    apt-transport-https \
-    software-properties-common \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN wget https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb \
-    && dpkg -i packages-microsoft-prod.deb \
-    && rm packages-microsoft-prod.deb \
-    && apt-get update \
-    && apt-get install -y dotnet-sdk-8.0 \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/dotnet/sdk:8.0-jammy AS builder
 
 WORKDIR /build
 
+# Copy project files
 COPY DeepResearchAgent.Api/ ./DeepResearchAgent.Api/
 COPY DeepResearchAgent/ ./DeepResearchAgent/
 
+# Restore and publish
 RUN dotnet restore DeepResearchAgent.Api/DeepResearchAgent.Api.csproj
 
 RUN dotnet publish DeepResearchAgent.Api/DeepResearchAgent.Api.csproj \
     -c Release \
-    -o /app/out
+    -o /app/out \
+    --no-restore
 
 # Production stage
-FROM ubuntu:24.04
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-jammy
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    DOTNET_VERSION=8.0 \
-    ASPNETCORE_URLS=http://+:5000
-
-RUN apt-get update && apt-get install -y \
-    wget \
-    apt-transport-https \
-    software-properties-common \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN wget https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb \
-    && dpkg -i packages-microsoft-prod.deb \
-    && rm packages-microsoft-prod.deb \
-    && apt-get update \
-    && apt-get install -y dotnet-runtime-8.0 \
-    && rm -rf /var/lib/apt/lists/*
+ENV ASPNETCORE_URLS=http://+:5000
 
 WORKDIR /app
 
 COPY --from=builder /app/out .
 
 # Create non-root user for security
-RUN if ! id -u dotnetuser >/dev/null 2>&1; then useradd -m dotnetuser; fi && chown -R dotnetuser:dotnetuser /app
+RUN useradd -m dotnetuser && chown -R dotnetuser:dotnetuser /app
 USER dotnetuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
