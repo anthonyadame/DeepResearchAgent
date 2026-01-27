@@ -475,9 +475,15 @@ This project is inspired by and based on the research and concepts presented in:
 
 ## 📚 References
 
-The implementation incorporates techniques and insights from the following Microsoft Research publications:
+The implementation incorporates techniques and insights from the following publications:
 
 ### LLM Optimization & Reasoning
+
+Note: It's always nice to see others are working on similar problems! Validates the work you have been doing.
+
+**LinkedIn AI & HuggingFace.** "GPT-OSS: Open-Source Models for Agentic Reinforcement Learning."  
+🔗 [Read the article](https://huggingface.co/blog/LinkedIn/gpt-oss-agentic-rl)  
+*Presents GPT-OSS models optimized for agentic workflows and reinforcement learning applications*
 
 **Microsoft Research.** "OptiMind: A Small Language Model with Optimization Expertise."  
 🔗 [Read the article](https://www.microsoft.com/en-us/research/blog/optimind-a-small-language-model-with-optimization-expertise/)  

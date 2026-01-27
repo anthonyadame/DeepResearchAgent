@@ -27,7 +27,8 @@
       "@services/*": ["src/services/*"],
       "@types/*": ["src/types/*"],
       "@hooks/*": ["src/hooks/*"],
-      "@pages/*": ["src/pages/*"]
+      "@pages/*": ["src/pages/*"],
+      "@contexts/*": ["src/contexts/*"]
     }
   },
   "include": ["src"],

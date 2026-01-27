@@ -12,6 +12,7 @@ export default defineConfig({
       '@types': path.resolve(__dirname, './src/types'),
       '@hooks': path.resolve(__dirname, './src/hooks'),
       '@pages': path.resolve(__dirname, './src/pages'),
+      '@contexts': path.resolve(__dirname, './src/contexts'),
     },
   },
   server: {

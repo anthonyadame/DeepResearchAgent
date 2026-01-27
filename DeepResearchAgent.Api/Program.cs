@@ -4,6 +4,8 @@ using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.Telemetry;
 using DeepResearchAgent.Workflows;
 using DeepResearchAgent.Api.Extensions;
+using DeepResearchAgent.Api.Services;
+using DeepResearchAgent.Agents; // Add this
 using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -73,6 +75,46 @@ builder.Services.AddSingleton<MetricsService>();
 builder.Services.AddSingleton<IWebSearchProvider>(sp => new SearCrawl4AIAdapter(
     sp.GetRequiredService<SearCrawl4AIService>(),
     sp.GetRequiredService<ILogger<SearCrawl4AIAdapter>>()
+));
+
+// Tool Invocation Service (required by agents)
+builder.Services.AddSingleton<ToolInvocationService>(sp => new ToolInvocationService(
+    sp.GetRequiredService<IWebSearchProvider>(),
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetService<ILogger<ToolInvocationService>>()
+));
+
+// Phase 5 Support Services (required by ChatIntegrationService)
+builder.Services.AddSingleton<StateTransitioner>(sp => new StateTransitioner(
+    sp.GetService<ILogger<StateTransitioner>>()
+));
+
+builder.Services.AddSingleton<AgentErrorRecovery>(sp => new AgentErrorRecovery(
+    sp.GetService<ILogger<AgentErrorRecovery>>(),
+    maxRetries: 2,
+    retryDelay: TimeSpan.FromSeconds(1)
+));
+
+// Register Agents (ResearcherAgent, AnalystAgent, ReportAgent)
+builder.Services.AddSingleton<ResearcherAgent>(sp => new ResearcherAgent(
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<ToolInvocationService>(),
+    sp.GetService<ILogger<ResearcherAgent>>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+builder.Services.AddSingleton<AnalystAgent>(sp => new AnalystAgent(
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<ToolInvocationService>(),
+    sp.GetService<ILogger<AnalystAgent>>(),
+    sp.GetRequiredService<MetricsService>()
+));
+
+builder.Services.AddSingleton<ReportAgent>(sp => new ReportAgent(
+    sp.GetRequiredService<OllamaService>(),
+    sp.GetRequiredService<ToolInvocationService>(),
+    sp.GetService<ILogger<ReportAgent>>(),
+    sp.GetRequiredService<MetricsService>()
 ));
 
 // Workflow Services with proper dependency injection

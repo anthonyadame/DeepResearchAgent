@@ -4,6 +4,7 @@
 - Provide concise, impersonal, expert explanations.
 - Use imperative mood for instructions (e.g., "Use X" instead of "You should use X").
 - When responding with durations/timelines, include agent durations (how long each agent/component takes) to provide detailed performance metrics and help understand bottlenecks.
+- Prefer placing internal process and build documentation (*.md) into `BuildDocs`, keeping only consumer-facing `README.md` files in project roots; `BuildDocs` serves as a journal of implementation details (what/why/how, including failures).
 
 ## Code Style
 - Format code in markdown with file path headers.
