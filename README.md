@@ -2,6 +2,9 @@
 
 A sophisticated multi-agent research system that conducts in-depth investigations on topics, refines findings through iterative feedback, and synthesizes comprehensive reports.
 
+## 🎯 Tagline
+### Better answers, through a better ask. 
+
 ## 🎯 Overview
 
 The Deep Research Agent implements a **diffusion-based research refinement loop** that:
@@ -493,3 +496,13 @@ The implementation incorporates techniques and insights from the following Micro
 **Made with ❤️ for researchers and developers**
 
 For complete documentation, see the `BuildDoc` folder.
+
+
+Copyright (c) 2026 Anthony Adame
+
+Statement of clarity: The software provided is covered under the MIT License. Everything in the folder "BuildDoc" is my journal, filled with trial, tribulations, missteps and misdirection's but most importantly it reflects the discovery process required, hence the copyright. 
+
+Everything else in the repository is MIT License.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) ![.NET](
+
+
