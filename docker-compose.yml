@@ -290,11 +290,11 @@ services:
       - Lightning__ServerUrl=http://localhost:8090
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
       redis:
-        condition: service_healthy
+        condition: service_started
       searxng:
-        condition: service_healthy
+        condition: service_started
     networks:
       - research-network
     healthcheck:
@@ -316,7 +316,8 @@ services:
     environment:
       - VITE_API_BASE_URL=http://localhost:5000/api
     depends_on:
-      - api
+      api:
+        condition: service_started
     networks:
       - research-network
     healthcheck:
@@ -324,7 +325,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     restart: unless-stopped
 
 
