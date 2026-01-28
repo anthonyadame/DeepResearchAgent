@@ -192,13 +192,12 @@ public static class PromptTemplates
     - Assign each unique URL a single citation number in your text
     - End with ### Sources that lists each source with corresponding numbers
     - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-    - Each source should be a separate line item in a list, so that in markdown it is rendered as a list.
     - Example format:
       [1] Source Title: URL
       [2] Source Title: URL
     - Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
-    </Citation Rules>
-    ";
+    </Citation Rules>";
+
 
     /// <summary>
     /// The prompt for the refine_draft_report tool, which instructs the LLM on how to integrate new facts into an existing draft.
@@ -280,7 +279,6 @@ public static class PromptTemplates
     - Assign each unique URL a single citation number in your text
     - End with ### Sources that lists each source with corresponding numbers
     - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-    - Each source should be a separate line item in a list, so that in markdown it is rendered as a list.
     - Example format:
       [1] Source Title: URL
       [2] Source Title: URL
@@ -702,37 +700,106 @@ Be strategic but concise. Focus on actionable next steps.
     Today's date is {date}.
     ";
     
+    /// <summary>
+    /// Critique prompt for evaluating clarification questions.
+    /// Implements PromptWizard's feedback-driven refinement approach.
+    /// </summary>
+    public static string CritiqueClarificationPrompt => @"
+    You are an expert critic evaluating the quality of a clarification question.
+    Your role is to provide constructive feedback to improve the question's effectiveness.
 
+    <Current Clarification Question>
+    {question}
+    </Current Clarification Question>
 
-    public static string ConductResearchPrompt => @"
-You are a research agent conducting focused research on a specific topic.
+    <Conversation History>
+    {messages}
+    </Conversation History>
 
-Topic: {topic}
+    Evaluate this clarification question across these dimensions:
 
-Your task:
-1. Identify the most important aspects of this topic
-2. Search for authoritative sources
-3. Gather key facts and evidence
-4. Compile findings in a structured format
+    1. **Focus & Precision**: Is the question targeted and specific?
+    2. **Coverage**: Does it address the key gaps in the user's request?
+    3. **Clarity**: Will the user understand what information is needed?
+    4. **Actionability**: Will the answer enable confident research execution?
+    5. **Efficiency**: Does it avoid asking for unnecessary information?
 
-Focus on accuracy and relevance. Stop when you have sufficient information.
-";
+    Provide your critique as structured feedback identifying:
+    - Specific weaknesses in the question
+    - Concrete suggestions for improvement
+    - Which quality dimensions need strengthening
 
-    public static string RefineReportPrompt => @"
-You are helping to refine a research report based on new findings.
+    Be constructive but honest. If the question is already excellent, acknowledge that.
+    ";
 
-Current Report:
-{current_report}
+    /// <summary>
+    /// Quality evaluation prompt for assessing user request completeness.
+    /// </summary>
+    public static string EvaluateQualityPrompt => @"
+    You are an expert research analyst evaluating whether a user's request contains sufficient detail to begin research.
 
-New Findings:
-{new_findings}
+    <Conversation History>
+    {messages}
+    </Conversation History>
 
-Task: Integrate the new findings into the report to:
-1. Strengthen weak sections
-2. Address identified gaps
-3. Update with latest information
-4. Improve overall quality
+    <Current Date>
+    {date}
+    </Current Date>
 
-Provide an improved version of the report.
-";
+    Evaluate the user's request across three dimensions (score each 0-100):
+
+    1. **Clarity Score**: Is the request clear and unambiguous?
+       - 90-100: Crystal clear, no ambiguity
+       - 70-89: Mostly clear, minor ambiguity
+       - 50-69: Somewhat clear, notable ambiguity
+       - 0-49: Unclear or highly ambiguous
+
+    2. **Completeness Score**: Are all required research dimensions specified?
+       - Scope (what to research)
+       - Depth (how comprehensive)
+       - Format (how to present findings)
+       - Time constraints (if any)
+       - Domain context (if needed)
+
+    3. **Actionability Score**: Can a researcher confidently begin work?
+       - 90-100: Can start immediately with confidence
+       - 70-89: Can start with minor assumptions
+       - 50-69: Would need educated guesses
+       - 0-49: Too many unknowns to proceed
+
+    Identify specific gaps and provide reasoning for your scores.
+    Be rigorous - research quality depends on request quality.
+    ";
+
+    /// <summary>
+    /// Refinement prompt for improving clarification questions based on critique.
+    /// </summary>
+    public static string RefineClarificationPrompt => @"
+    You are refining a clarification question based on constructive critique.
+
+    <Original Question>
+    {original_question}
+    </Original Question>
+
+    <Critique Feedback>
+    Weaknesses: {weaknesses}
+    Suggested Improvements: {suggestions}
+    Dimensions to Improve: {dimensions}
+    </Critique Feedback>
+
+    <Conversation History>
+    {messages}
+    </Conversation History>
+
+    Generate an improved clarification question that addresses the critique feedback.
+    The refined question should:
+    - Fix identified weaknesses
+    - Incorporate suggested improvements
+    - Strengthen the specified dimensions
+    - Remain concise and user-friendly
+    - Maintain focus on the most critical information gaps
+
+    Return ONLY the improved clarification question and verification message.
+    Do not include explanations or commentary.
+    ";
 }

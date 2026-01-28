@@ -501,14 +501,14 @@ Note: It's always nice to see others are working on similar problems! Validates 
 
 **Made with ❤️ for researchers and developers**
 
-For complete documentation, see the `BuildDoc` folder.
+For complete documentation, see the `BuildDocs` folder.
 
 
 Copyright (c) 2026 Anthony Adame
 
-Statement of clarity: The software provided is covered under the MIT License. Everything in the folder "BuildDoc" is my journal, filled with trial, tribulations, missteps and misdirection's but most importantly it reflects the discovery process required, hence the copyright. 
+Statement of clarity: The software provided is covered under the MIT License. Everything in the folder "BuildDocs" is my journal, filled with trial, tribulations, missteps and misdirection's but most importantly it reflects the discovery process required, hence the copyright. 
 
 Everything else in the repository is MIT License.
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) ![.NET](
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 

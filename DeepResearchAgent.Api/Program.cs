@@ -2,16 +2,29 @@ using DeepResearchAgent.Services;
 using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Services.WebSearch;
 using DeepResearchAgent.Services.Telemetry;
+using DeepResearchAgent.Services.VectorDatabase;
 using DeepResearchAgent.Workflows;
+using DeepResearchAgent.Workflows.Extensions;
 using DeepResearchAgent.Api.Extensions;
 using DeepResearchAgent.Api.Services;
-using DeepResearchAgent.Agents; // Add this
+using DeepResearchAgent.Agents;
+using DeepResearchAgent.Configuration;
+using DeepResearchAgent.Models;
 using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuration
+// Configuration - Add additional config files like the working DeepResearchAgent
 var configuration = builder.Configuration;
+
+configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: true);
+configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.websearch.json"), optional: true, reloadOnChange: true);
+configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.apo.json"), optional: true, reloadOnChange: true);
+configuration.AddEnvironmentVariables();
+ 
+
+//configuration.AddJsonFile("appsettings.websearch.json", optional: true, reloadOnChange: true);
+//configuration.AddJsonFile("appsettings.apo.json", optional: true, reloadOnChange: true);
 
 var ollamaBaseUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
 var ollamaDefaultModel = configuration["Ollama:DefaultModel"] ?? "gpt-oss:20b";
@@ -21,12 +34,23 @@ var lightningServerUrl = configuration["Lightning:ServerUrl"]
     ?? Environment.GetEnvironmentVariable("LIGHTNING_SERVER_URL")
     ?? "http://localhost:8090";
 
+// APO configuration
+var apoConfig = new LightningAPOConfig();
+configuration.GetSection("Lightning:APO").Bind(apoConfig);
+
+// Vector database configuration
+var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", false);
+var qdrantBaseUrl = configuration["VectorDatabase:Qdrant:BaseUrl"] ?? "http://localhost:6333";
+var qdrantCollectionName = configuration["VectorDatabase:Qdrant:CollectionName"] ?? "research";
+var qdrantVectorDimension = configuration.GetValue("VectorDatabase:Qdrant:VectorDimension", 384);
+var embeddingModel = configuration["VectorDatabase:EmbeddingModel"] ?? "nomic-embed-text";
+var embeddingApiUrl = configuration["VectorDatabase:EmbeddingApiUrl"] ?? ollamaBaseUrl;
+
 // Core Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
-builder.Services.AddSingleton(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient());
 
 // API Services - Phase 3
 builder.Services.AddApiServices();
@@ -47,37 +71,117 @@ builder.Services.AddCors(options =>
     });
 });
 
-// DLL Services (original)
+// Register APO config
+builder.Services.AddSingleton(apoConfig);
+
+// Register LightningStore with proper configuration
+builder.Services.AddSingleton<LightningStoreOptions>(sp => new LightningStoreOptions
+{
+    DataDirectory = configuration["LightningStore:DataDirectory"] ?? "data",
+    FileName = configuration["LightningStore:FileName"] ?? "lightningstore.json",
+    LightningServerUrl = lightningServerUrl,
+    UseLightningServer = configuration.GetValue("LightningStore:UseLightningServer", true),
+    ResourceNamespace = configuration["LightningStore:ResourceNamespace"] ?? "facts"
+});
+
+builder.Services.AddSingleton<ILightningStore>(sp => new LightningStore(
+    sp.GetRequiredService<LightningStoreOptions>(),
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient()
+));
+
+builder.Services.AddSingleton<LightningStore>(sp => (LightningStore)sp.GetRequiredService<ILightningStore>());
+
+// Core Services
 builder.Services.AddSingleton<OllamaService>(_ => new OllamaService(
     baseUrl: ollamaBaseUrl,
     defaultModel: ollamaDefaultModel
 ));
+
 builder.Services.AddSingleton<SearCrawl4AIService>(sp => new SearCrawl4AIService(
-    sp.GetRequiredService<HttpClient>(),
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
     searxngBaseUrl,
     crawl4aiBaseUrl
 ));
-builder.Services.AddSingleton<LightningStore>();
-builder.Services.AddSingleton<IAgentLightningService>(sp => new AgentLightningService(
-    sp.GetRequiredService<HttpClient>(),
-    lightningServerUrl
+
+// Register web search providers (SearXNG + Tavily) and resolver
+builder.Services.AddHttpClient("SearXNG");
+//builder.Services.AddHttpClient("TavilyClient");
+builder.Services.AddWebSearchProviders(configuration);
+
+// Register embedding service
+builder.Services.AddSingleton<IEmbeddingService>(sp => new OllamaEmbeddingService(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
+    baseUrl: embeddingApiUrl,
+    model: embeddingModel,
+    dimension: qdrantVectorDimension,
+    logger: sp.GetService<Microsoft.Extensions.Logging.ILogger>()
 ));
+
+// Register vector database service (Qdrant)
+if (vectorDbEnabled)
+{
+    builder.Services.AddSingleton<IVectorDatabaseService>(sp => new QdrantVectorDatabaseService(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        new QdrantConfig
+        {
+            BaseUrl = qdrantBaseUrl,
+            CollectionName = qdrantCollectionName,
+            VectorDimension = qdrantVectorDimension
+        },
+        sp.GetRequiredService<IEmbeddingService>(),
+        logger: sp.GetService<Microsoft.Extensions.Logging.ILogger>()
+    ));
+}
+
+// Register vector database factory (for multiple DB support)
+builder.Services.AddSingleton<IVectorDatabaseFactory>(sp =>
+{
+    var factory = new VectorDatabaseFactory(sp.GetService<Microsoft.Extensions.Logging.ILogger>());
+    
+    if (vectorDbEnabled && sp.GetService<IVectorDatabaseService>() != null)
+    {
+        factory.RegisterVectorDatabase("qdrant", sp.GetRequiredService<IVectorDatabaseService>());
+    }
+    
+    return factory;
+});
+
+// Register Agent-Lightning services
+builder.Services.AddHttpClient<IAgentLightningService, AgentLightningService>();
+builder.Services.AddSingleton<IAgentLightningService>(sp =>
+{
+    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AgentLightningService));
+    var apo = sp.GetRequiredService<LightningAPOConfig>();
+    var metrics = sp.GetRequiredService<MetricsService>();
+    
+    // Configure HTTP client timeout based on APO config
+    httpClient.Timeout = TimeSpan.FromSeconds(apo.ResourceLimits.TaskTimeoutSeconds);
+    
+    return new AgentLightningService(
+        httpClient,
+        lightningServerUrl,
+        clientId: null,
+        apo: apo,
+        metrics: metrics);
+});
+
 builder.Services.AddSingleton<ILightningVERLService>(sp => new LightningVERLService(
-    sp.GetRequiredService<HttpClient>(),
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(),
     lightningServerUrl
 ));
 builder.Services.AddSingleton<ILightningStateService, LightningStateService>();
 
+// Register APO auto-scaler as hosted service (if enabled)
+builder.Services.AddHostedService<LightningApoScaler>();
+
 // Metrics Service
 builder.Services.AddSingleton<MetricsService>();
 
-// Web Search Provider (required by workflows)
-builder.Services.AddSingleton<IWebSearchProvider>(sp => new SearCrawl4AIAdapter(
-    sp.GetRequiredService<SearCrawl4AIService>(),
-    sp.GetRequiredService<ILogger<SearCrawl4AIAdapter>>()
-));
+// Register supporting services for workflows
+builder.Services.AddSingleton<StateManager>();
+builder.Services.AddSingleton<WorkflowModelConfiguration>();
 
-// Tool Invocation Service (required by agents)
+// Tool Invocation Service (required by agents) - singleton to be reused
 builder.Services.AddSingleton<ToolInvocationService>(sp => new ToolInvocationService(
     sp.GetRequiredService<IWebSearchProvider>(),
     sp.GetRequiredService<OllamaService>(),
@@ -123,12 +227,12 @@ builder.Services.AddSingleton<ResearcherWorkflow>(sp => new ResearcherWorkflow(
     sp.GetRequiredService<SearCrawl4AIService>(),
     sp.GetRequiredService<OllamaService>(),
     sp.GetRequiredService<LightningStore>(),
-    vectorDb: null,
-    embeddingService: null,
-    sp.GetRequiredService<ILogger<ResearcherWorkflow>>(),
+    sp.GetService<IVectorDatabaseService>(),
+    sp.GetService<IEmbeddingService>(),
+    sp.GetService<ILogger<ResearcherWorkflow>>(),
     sp.GetRequiredService<MetricsService>(),
-    sp.GetRequiredService<IAgentLightningService>(),
-    apoConfig: null
+    sp.GetService<IAgentLightningService>(),
+    sp.GetService<LightningAPOConfig>()
 ));
 
 builder.Services.AddSingleton<SupervisorWorkflow>(sp => new SupervisorWorkflow(
@@ -137,9 +241,9 @@ builder.Services.AddSingleton<SupervisorWorkflow>(sp => new SupervisorWorkflow(
     sp.GetRequiredService<OllamaService>(),
     sp.GetRequiredService<IWebSearchProvider>(),
     sp.GetRequiredService<LightningStore>(),
-    sp.GetRequiredService<ILogger<SupervisorWorkflow>>(),
-    stateManager: null,
-    modelConfig: null,
+    sp.GetService<ILogger<SupervisorWorkflow>>(),
+    sp.GetRequiredService<StateManager>(),
+    sp.GetRequiredService<WorkflowModelConfiguration>(),
     sp.GetRequiredService<MetricsService>()
 ));
 
@@ -148,13 +252,17 @@ builder.Services.AddSingleton<MasterWorkflow>(sp => new MasterWorkflow(
     sp.GetRequiredService<SupervisorWorkflow>(),
     sp.GetRequiredService<OllamaService>(),
     sp.GetRequiredService<IWebSearchProvider>(),
-    sp.GetRequiredService<ILogger<MasterWorkflow>>(),
-    stateManager: null,
+    sp.GetService<ILogger<MasterWorkflow>>(),
+    sp.GetRequiredService<StateManager>(),
     sp.GetRequiredService<MetricsService>(),
-    researcherAgent: null,
-    analystAgent: null,
-    reportAgent: null
+    sp.GetService<ResearcherAgent>(),
+    sp.GetService<AnalystAgent>(),
+    sp.GetService<ReportAgent>()
 ));
+
+// Chat Services (required by ChatController)
+builder.Services.AddSingleton<IChatSessionService, ChatSessionService>();
+builder.Services.AddSingleton<ChatIntegrationService>();
 
 var app = builder.Build();
 

@@ -20,8 +20,8 @@ namespace DeepResearchAgent.Agents;
 /// </summary>
 public class ClarifyAgent
 {
-    private readonly OllamaService _llmService;
-    private readonly ILogger<ClarifyAgent>? _logger;
+    protected readonly OllamaService _llmService;
+    protected readonly ILogger<ClarifyAgent>? _logger;
     private readonly MetricsService _metrics;
 
     protected virtual string AgentName => "ClarifyAgent";

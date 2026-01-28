@@ -26,16 +26,16 @@ public static class WebSearchProviderExtensions
         // Bind WebSearchOptions from configuration (section: "WebSearch")
         services.Configure<WebSearchOptions>(configuration.GetSection("WebSearch"));
 
-        // Register SearCrawl4AI as a provider (existing service)
-        services.AddScoped<SearCrawl4AIAdapter>(sp =>
+        // Register SearCrawl4AI as a provider (existing service) - Changed to Singleton for API compatibility
+        services.AddSingleton<SearCrawl4AIAdapter>(sp =>
         {
             var searCrawl4AIService = sp.GetRequiredService<SearCrawl4AIService>();
             var logger = sp.GetService<ILogger<SearCrawl4AIAdapter>>();
             return new SearCrawl4AIAdapter(searCrawl4AIService, logger);
         });
 
-        // Register Tavily provider
-        services.AddScoped<TavilySearchService>(sp =>
+        // Register Tavily provider - Changed to Singleton for API compatibility
+        services.AddSingleton<TavilySearchService>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<WebSearchOptions>>();
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -55,8 +55,8 @@ public static class WebSearchProviderExtensions
             return new TavilySearchService(httpClient, apiKey, options.Value.TavilyBaseUrl, logger, timeout);
         });
 
-        // Register provider resolver
-        services.AddScoped<IWebSearchProviderResolver>(sp =>
+        // Register provider resolver - Changed to Singleton for API compatibility
+        services.AddSingleton<IWebSearchProviderResolver>(sp =>
         {
             var searCrawl4AIAdapter = sp.GetRequiredService<SearCrawl4AIAdapter>();
             var tavilyService = sp.GetService<TavilySearchService>();
@@ -72,8 +72,8 @@ public static class WebSearchProviderExtensions
             return new WebSearchProviderResolver(providers, options, logger);
         });
 
-        // Register default IWebSearchProvider as a factory that resolves from resolver
-        services.AddScoped<IWebSearchProvider>(sp =>
+        // Register default IWebSearchProvider as a factory that resolves from resolver - Changed to Singleton
+        services.AddSingleton<IWebSearchProvider>(sp =>
         {
             var resolver = sp.GetRequiredService<IWebSearchProviderResolver>();
             return resolver.Resolve();
