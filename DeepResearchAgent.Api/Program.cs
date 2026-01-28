@@ -21,7 +21,8 @@ configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.js
 configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.websearch.json"), optional: true, reloadOnChange: true);
 configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.apo.json"), optional: true, reloadOnChange: true);
 configuration.AddEnvironmentVariables();
- 
+builder.Configuration.AddYamlFile("config.yml", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
 
 //configuration.AddJsonFile("appsettings.websearch.json", optional: true, reloadOnChange: true);
 //configuration.AddJsonFile("appsettings.apo.json", optional: true, reloadOnChange: true);
@@ -41,8 +42,10 @@ configuration.GetSection("Lightning:APO").Bind(apoConfig);
 // Vector database configuration
 var vectorDbEnabled = configuration.GetValue("VectorDatabase:Enabled", false);
 var qdrantBaseUrl = configuration["VectorDatabase:Qdrant:BaseUrl"] ?? "http://localhost:6333";
+var qdrantApiKey = configuration["VectorDatabase:Qdrant:ApiKey"] ?? configuration["ApiKeys:Qdrant"];
 var qdrantCollectionName = configuration["VectorDatabase:Qdrant:CollectionName"] ?? "research";
 var qdrantVectorDimension = configuration.GetValue("VectorDatabase:Qdrant:VectorDimension", 384);
+var qdrantTimeoutMs = configuration.GetValue("VectorDatabase:Qdrant:TimeoutMs", 30000);
 var embeddingModel = configuration["VectorDatabase:EmbeddingModel"] ?? "nomic-embed-text";
 var embeddingApiUrl = configuration["VectorDatabase:EmbeddingApiUrl"] ?? ollamaBaseUrl;
 
@@ -125,8 +128,10 @@ if (vectorDbEnabled)
         new QdrantConfig
         {
             BaseUrl = qdrantBaseUrl,
+            ApiKey = qdrantApiKey,
             CollectionName = qdrantCollectionName,
-            VectorDimension = qdrantVectorDimension
+            VectorDimension = qdrantVectorDimension,
+            TimeoutMs = qdrantTimeoutMs
         },
         sp.GetRequiredService<IEmbeddingService>(),
         logger: sp.GetService<Microsoft.Extensions.Logging.ILogger>()

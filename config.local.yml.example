@@ -1,0 +1,18 @@
+# config.local.yml - Example for local development
+# Copy this file and customize for your local environment
+# DO NOT commit sensitive API keys to source control
+
+ApiKeys:
+  Tavily: "${TAVILY_API_KEY}"
+  Qdrant: "${QDRANT_API_KEY}"
+
+# Override any other settings as needed for your local setup
+VectorDatabase:
+  Enabled: true
+  Qdrant:
+    BaseUrl: "http://localhost:6333"
+    ApiKey: "${QDRANT_API_KEY}"
+
+WebSearch:
+  Provider: "tavily"
+  TavilyApiKey: "${TAVILY_API_KEY}"
