@@ -266,44 +266,88 @@ public class MasterWorkflow
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         _logger?.LogInformation("Starting MasterWorkflow stream");
-        yield return $"[master] received query: {userQuery}";
+        yield return Json("status", "connected", "timestamp", DateTime.UtcNow.ToString("O"));
 
         // Step 1: Clarify
-        yield return "[master] step 1: clarifying user intent...";
+        _logger?.LogInformation("Stream: Step 1 - Clarifying");
+        yield return Json("step", "1", "status", "clarifying user intent");
+        
         var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
         
         if (needsClarification)
         {
-            yield return $"[master] clarification needed: {clarificationQuestion}";
+            _logger?.LogInformation("Stream: Clarification needed");
+            yield return Json("step", "1", "status", "clarification_needed", "message", clarificationQuestion);
             yield break;
         }
-        yield return "[master] query is sufficiently detailed";
+        _logger?.LogInformation("Stream: Query clarified");
+        yield return Json("step", "1", "status", "completed", "message", "query is sufficiently detailed");
 
         // Step 2: Research brief
-        yield return "[master] step 2: writing research brief...";
+        _logger?.LogInformation("Stream: Step 2 - Writing research brief");
+        yield return Json("step", "2", "status", "writing research brief");
+        
         var researchBrief = await WriteResearchBriefAsync(userQuery, cancellationToken);
-        var briefPreview = researchBrief.Substring(0, Math.Min(100, researchBrief.Length));
-        yield return $"[master] research brief: {briefPreview}...";
+        var briefPreview = researchBrief.Substring(0, Math.Min(150, researchBrief.Length)).Replace("\n", " ");
+        _logger?.LogInformation("Stream: Research brief completed ({Length} chars)", researchBrief.Length);
+        yield return Json("step", "2", "status", "completed", "preview", briefPreview, "length", researchBrief.Length.ToString());
 
         // Step 3: Initial draft
-        yield return "[master] step 3: generating initial draft report...";
+        _logger?.LogInformation("Stream: Step 3 - Generating initial draft");
+        yield return Json("step", "3", "status", "generating initial draft report");
+        
         var draftReport = await WriteDraftReportAsync(researchBrief, cancellationToken);
-        yield return $"[master] initial draft generated ({draftReport.Length} chars)";
+        _logger?.LogInformation("Stream: Draft report completed ({Length} chars)", draftReport.Length);
+        yield return Json("step", "3", "status", "completed", "length", draftReport.Length.ToString());
 
         // Step 4: Supervisor loop (stream its progress)
-        yield return "[master] step 4: starting supervisor loop (diffusion process)...";
+        _logger?.LogInformation("Stream: Step 4 - Starting supervisor loop");
+        yield return Json("step", "4", "status", "starting supervisor loop (diffusion process)");
+        
+        int supervisorUpdateCount = 0;
         await foreach (var supervisorUpdate in _supervisor.StreamSuperviseAsync(researchBrief, draftReport, cancellationToken: cancellationToken))
         {
+            supervisorUpdateCount++;
+            _logger?.LogDebug("Stream: Supervisor update #{Count}", supervisorUpdateCount);
             yield return supervisorUpdate;
+            
+            // Yield heartbeat every 10 updates to keep connection alive
+            if (supervisorUpdateCount % 10 == 0)
+            {
+                yield return Json("heartbeat", "true", "supervisor_updates", supervisorUpdateCount.ToString());
+            }
         }
+        _logger?.LogInformation("Stream: Supervisor loop completed ({UpdateCount} updates)", supervisorUpdateCount);
+        yield return Json("step", "4", "status", "completed", "supervisor_updates", supervisorUpdateCount.ToString());
 
         // Step 5: Final report
-        yield return "[master] step 5: generating final polished report...";
+        _logger?.LogInformation("Stream: Step 5 - Generating final report");
+        yield return Json("step", "5", "status", "generating final polished report");
+        
         var refinedSummary = await _supervisor.SuperviseAsync(researchBrief, draftReport, cancellationToken: cancellationToken);
         var finalReport = await GenerateFinalReportAsync(userQuery, researchBrief, draftReport, refinedSummary, cancellationToken);
-        yield return $"[master] final report generated ({finalReport.Length} chars)";
+        _logger?.LogInformation("Stream: Final report completed ({Length} chars)", finalReport.Length);
+        yield return Json("step", "5", "status", "completed", "length", finalReport.Length.ToString());
 
-        yield return "[master] workflow complete";
+        _logger?.LogInformation("Stream: Workflow complete");
+        yield return Json("status", "completed", "totalSteps", "5");
+    }
+
+    /// <summary>
+    /// Helper to format JSON responses for streaming.
+    /// </summary>
+    private static string Json(params string[] pairs)
+    {
+        if (pairs.Length % 2 != 0)
+            throw new ArgumentException("Pairs must be key-value pairs");
+
+        var dict = new Dictionary<string, object>();
+        for (int i = 0; i < pairs.Length; i += 2)
+        {
+            dict[pairs[i]] = pairs[i + 1];
+        }
+
+        return System.Text.Json.JsonSerializer.Serialize(dict);
     }
 
     /// <summary>
