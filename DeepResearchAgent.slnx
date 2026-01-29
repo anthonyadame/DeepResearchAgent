@@ -114,6 +114,65 @@
 		<File Path="lightning-server/tests/test_integration.py" />
     </Folder>
 
+
+	<Folder Name="/monitoring/">
+		<File Path="monitoring/alertmanager.yml" />
+		<File Path="monitoring/alerts.yml" />
+		<File Path="monitoring/disable-lightning-server.ps1" />
+		<File Path="monitoring/disable-lightning-server.sh" />
+		<File Path="monitoring/docker-compose.yml" />
+		<File Path="monitoring/prometheus.yml" />
+		<File Path="monitoring/README.md" />
+		<File Path="monitoring/setup.ps1" />
+		<File Path="monitoring/setup.sh" />
+		
+	</Folder>
+
+	<Folder Name="/monitoring/alertmanager/">
+		<File Path="monitoring/alertmanager/alertmanager.yml" />
+		
+	</Folder>
+	
+	<Folder Name="/monitoring/grafana/dashboard/">
+		<File Path="monitoring/grafana/dashboards/apo-performance.json" />
+		<File Path="monitoring/grafana/dashboards/dashboard-provider.yml" />
+		
+	</Folder>
+	
+	<Folder Name="/monitoring/grafana/datasources/">
+		<File Path="monitoring/grafana/datasources/prometheus.yml" />
+		
+	</Folder>
+	
+	<Folder Name="/monitoring/grafana/provisioning/">
+		
+	</Folder>
+	
+	<Folder Name="/monitoring/grafana/provisioning/datasources/">
+		<File Path="monitoring/grafana/provisioning/datasources/datasource.yml" />
+		
+	</Folder>
+	
+	
+	<Folder Name="/monitoring/grafana/">
+		
+	</Folder>
+	
+
+	<Folder Name="/monitoring/prometheus/">
+		<File Path="monitoring/prometheus/prometheus.yml" />
+		
+	</Folder>
+	
+	<Folder Name="/monitoring/prometheus/alerts/">
+		<File Path="monitoring/prometheus/alerts/apo-alerts.yml" />
+		
+	</Folder>
+	<Folder Name="/OrigSource/">
+		<File Path="OrigSource/rd-code.py" />
+		
+	</Folder>
+
   <Folder Name="/scripts/">
     <File Path="scripts/test-lightning-integration.sh" />
   </Folder>
@@ -131,7 +190,7 @@
     <File Path="LICENSE.txt" />
     <File Path="README.md" />
   </Folder>
-  <Project Path="DeepResearchAgent.Api/DeepResearchAgent.Api.csproj" />
-  <Project Path="DeepResearchAgent.Tests/DeepResearchAgent.Tests.csproj" />
-  <Project Path="DeepResearchAgent/DeepResearchAgent.csproj" />
+	<Project Path="DeepResearchAgent.Api/DeepResearchAgent.Api.csproj" />
+	<Project Path="DeepResearchAgent.Tests/DeepResearchAgent.Tests.csproj" />
+	<Project Path="DeepResearchAgent/DeepResearchAgent.csproj" />
 </Solution>
