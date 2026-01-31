@@ -30,6 +30,10 @@ var configuration = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
+// appsettings.websearch.json override example:
+// "WebSearch": { "Provider": "searxng" }
+var webSearchProvider = configuration["WebSearch:Provider"] ?? "searxng";
+
 var ollamaBaseUrl = configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
 var ollamaDefaultModel = configuration["Ollama:DefaultModel"] ?? "gpt-oss:20b";
 var searxngBaseUrl = configuration["SearXNG:BaseUrl"] ?? "http://localhost:8080";
@@ -56,7 +60,7 @@ var services = new ServiceCollection();
 services.AddLogging(logging => 
 {
     logging.AddConsole();
-    logging.SetMinimumLevel(LogLevel.Trace);
+    logging.SetMinimumLevel(LogLevel.Error);
 });
 
 // Register core services
@@ -556,7 +560,8 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
         
         if (string.IsNullOrEmpty(query))
         {
-            query = TestPrompts.ComplexQuery;
+            //query = TestPrompts.ComplexQuery;
+            query = TestPrompts.ComplexQuerySpace;
             Console.WriteLine($"Using default query: {query}");
         }
 
@@ -565,20 +570,25 @@ static async Task RunWorkflowOrchestration(ServiceProvider serviceProvider)
         Console.WriteLine("\n➤ Starting workflow execution...\n");
         Console.WriteLine(new string('-', 60));
 
-        var result = await masterWorkflow.RunAsync(query, CancellationToken.None);
 
-        if(string.IsNullOrEmpty(result) && result.Contains($"Clarification needed:"))
+        await foreach (var response in masterWorkflow.StreamStateAsync(query))
         {
-            var clarifiedQuery = TestPrompts.ClarifiedQuery;
+            WriteStreamStateFields(response);
 
-            result = await masterWorkflow.RunAsync(clarifiedQuery, CancellationToken.None);
+            if (!string.IsNullOrWhiteSpace(response.Status) && response.Status.Contains("clarification_needed", StringComparison.OrdinalIgnoreCase))
+            {
+                var clarifiedQuery = query + "\n\nclarification_provided: " + TestPrompts.ClarifiedQuerySpace;
+
+                await foreach (var clarifyresponse in masterWorkflow.StreamStateAsync(clarifiedQuery))
+                {
+                    WriteStreamStateFields(clarifyresponse);
+                }
+            }
         }
 
 
         Console.WriteLine("✓ Workflow execution completed successfully.\n");
-        Console.WriteLine("📝 Result:\n");
-        Console.WriteLine(result);
-
+        
         Console.WriteLine(new string('-', 60));
         Console.WriteLine("\n✅ WORKFLOW EXECUTION: COMPLETE");
     }
@@ -619,6 +629,37 @@ static async Task RunAllHealthChecks(
 }
 
 
+
+static void WriteStreamStateField(string label, string? value)
+{
+    if (!string.IsNullOrWhiteSpace(value))
+    {
+        Console.WriteLine($"🗨️  StreamState {label}: {value}");
+    }
+}
+
+static void WriteStreamStateFields(StreamState response)
+{
+    var streamFields = new (string Label, string? Value)[]
+    {
+        ("Status", response.Status),
+        ("ResearchId", response.ResearchId),
+        ("UserQuery", response.UserQuery),
+        ("BriefPreview", response.BriefPreview),
+        ("ResearchBrief", response.ResearchBrief),
+        ("DraftReport", response.DraftReport),
+        ("RefinedSummary", response.RefinedSummary),
+        ("FinalReport", response.FinalReport),
+        ("SupervisorUpdate", response.SupervisorUpdate),
+        ("SupervisorUpdateCount", response.SupervisorUpdateCount > 0 ? response.SupervisorUpdateCount.ToString() : null)
+    };
+
+    foreach (var (label, value) in streamFields)
+    {
+        WriteStreamStateField(label, value);
+    }
+}
+
 /// <summary>
 /// All prompt templates used throughout the deep research agent system.
 /// These are C# ports of the original Python prompts.
@@ -633,5 +674,55 @@ public static class TestPrompts
                 Specifically contrast TSMC's diversification strategy against Intel's IDM 2.0 model under 2024-2025 US export controls,
                 and predict the resulting shift in insurance liability models for cross-border wafer shipments.";
 
-    public static string ClarifiedQuery => @"";
+    /// <summary>
+    /// Gets the complex query template used for evaluating the cost, feasibility, probability, and timeframe of a
+    /// satellite mission to Jupiter utilizing advanced telescope arrays.
+    /// Note : The grandouse/ambigous statement sare intentional to encourage clarification and deep research and exploration. 
+    /// </summary>
+    /// <remarks>
+    /// This property provides a comprehensive framework for assessing the viability of deploying
+    /// satellites as telescopes near Jupiter, including considerations for cost analysis, technological requirements,
+    /// and project timelines. It encourages innovative approaches and the exploration of emerging technologies to
+    /// address the mission's challenges.
+    /// </remarks>
+    public static string ComplexQuerySpace => @"  
+**GOAL**
+How much would it cost and estimate the viability, probability and time frame to succeed.
+
+**Mission**
+To send a series of satellites to approximately where Jupiter is current orbiting and use them as a series of telescopes. The telescopes would take advantage of the fact that light bends because of the gravity of the sun. An array or better yet something along the lines of a Dyson sphere would allow use to pear much deeper into space. We seek to go beyond the moon so to speak. We want to pear into the heavens and beyond.
+
+**Scope - Using Starlink as a basic model and limit to a minimum viability test amount**
+
+Cost:
+1. Price per satellite?
+2. Price to launch?
+3. Total price to get one from concept to reality. Orbiting near Jupiter?
+4. Minimum minimum viability test amount?
+5. Potential cost over runs and potential cost saving. The first is usually the most expensive, once scaled the price drops?
+
+Timeframe:
+1. From dream to first orbiting?
+2. Total time to minimum viability testing?
+3. Time to build momentum and acceptance. How long would it take for other to get invested and contributing, money and human capital.
+
+Technology
+1. Can we leverage what we have or need to develop new?
+
+**Keep in mind**
+1. Extreme expense to achieve orbit
+2. We know light bends but would the light captured suffice for the mission. Light can be polluted, scattered, blocked, etc.
+
+**Finally**
+Iterate over the question three time or less if there is no room for improvement. Ask questions if clarity is needed. Do we really need to use old rocket technology. If light can move mass, do we need rocket so to speak. Use every resource under the sun to answer the question. Rethink old ideas. A metaphor, but dig deep, look for new or evolving technology that might help.";
+
+
+
+    public static string ClarifiedQuerySpace => @"Number of satellites needs to be estimated as part of the output. Not sure and need to know for the minimum viability test?
+
+Minimum payload to accomplish the mission. Moving mass into space is costly, so we need to determine what would be most effective a couple big satellites or a large array of small satellites.
+
+A focal distance of ~550 AU should be reviewed. Could we shorten that by creating a large circular array, capturing the light before the focal point?
+
+If we do have to go out to ~550 AU(s). Where in the known universe could we get a shorter focal point, i.e. where would be a better place for someone to look at Earth or other galaxies? ";
 }

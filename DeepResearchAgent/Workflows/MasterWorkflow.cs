@@ -1,12 +1,13 @@
-using System.Runtime.CompilerServices;
 using DeepResearchAgent.Agents;
 using DeepResearchAgent.Models;
-using DeepResearchAgent.Services;
-using DeepResearchAgent.Services.WebSearch;
-using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Prompts;
+using DeepResearchAgent.Services;
+using DeepResearchAgent.Services.StateManagement;
 using DeepResearchAgent.Services.Telemetry;
+using DeepResearchAgent.Services.WebSearch;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Trace;
+using System.Runtime.CompilerServices;
 
 namespace DeepResearchAgent.Workflows;
 
@@ -259,6 +260,94 @@ public class MasterWorkflow
         }
     }
 
+
+    public async Task<AgentState> ExecuteByStepAsync(AgentState input, CancellationToken cancellationToken = default)
+    {
+        _logger?.LogInformation("Starting MasterWorkflow.ExecuteByStepAsync with AgentState");
+
+        try
+        {
+            // Extract query from initial message
+            var userQuery = input.Messages?.FirstOrDefault()?.Content ?? "Conduct research";
+
+            // Step 1: Clarify with user (only if NeedsQualityRepair flag is set)
+            if (input.NeedsQualityRepair)
+            {
+                _logger?.LogInformation("Step 1: Clarifying user intent");
+                var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
+
+                if (needsClarification)
+                {
+                    _logger?.LogInformation("User clarification needed - returning with question");
+                    input.ResearchBrief = $"Clarification needed: {clarificationQuestion}";
+                    input.NeedsQualityRepair = true; // Keep flag set until clarification resolved
+                    return input;
+                }
+
+                // Query is sufficiently detailed - clear the repair flag and continue
+                _logger?.LogInformation("Query clarified - proceeding to step 2");
+                input.NeedsQualityRepair = false;
+            }
+
+            // Step 2: Write research brief (only if not already generated)
+            if (string.IsNullOrEmpty(input.ResearchBrief))
+            {
+                _logger?.LogInformation("Step 2: Writing research brief");
+                var researchBrief = await WriteResearchBriefAsync(userQuery, cancellationToken);
+                input.ResearchBrief = researchBrief;
+                _logger?.LogInformation("Research brief generated: {Length} chars", researchBrief.Length);
+                return input; // Return after each step for UI to display progress
+            }
+
+            // Step 3: Write initial draft (only if ResearchBrief exists and DraftReport doesn't)
+            if (string.IsNullOrEmpty(input.DraftReport) && !string.IsNullOrEmpty(input.ResearchBrief))
+            {
+                _logger?.LogInformation("Step 3: Generating initial draft report");
+                var draftReport = await WriteDraftReportAsync(input.ResearchBrief, cancellationToken);
+                input.DraftReport = draftReport;
+                _logger?.LogInformation("Draft report generated: {Length} chars", draftReport.Length);
+                return input;
+            }
+
+            // Step 4: Execute supervisor loop (only if we have brief and draft, but no supervisor messages yet)
+            if (!input.SupervisorMessages.Any() && !string.IsNullOrEmpty(input.ResearchBrief) && !string.IsNullOrEmpty(input.DraftReport))
+            {
+                _logger?.LogInformation("Step 4: Executing supervisor loop (diffusion process)");
+                input.SupervisorState = StateFactory.CreateSupervisorState(input.ResearchBrief, input.DraftReport, input.SupervisorMessages);
+                
+                // Execute supervisor refinement
+                input.SupervisorState = await _supervisor.ExecuteAsync(input.SupervisorState, cancellationToken);
+                input.SupervisorMessages = input.SupervisorState.SupervisorMessages;
+                input.RawNotes = input.SupervisorState.RawNotes;
+                
+                _logger?.LogInformation("Supervisor loop completed - {NoteCount} raw notes generated", input.RawNotes.Count);
+                return input;
+            }
+
+            // Step 5: Generate final report (only if we have all previous steps but no final report)
+            if (string.IsNullOrEmpty(input.FinalReport) && 
+                !string.IsNullOrEmpty(input.ResearchBrief) && 
+                !string.IsNullOrEmpty(input.DraftReport) && 
+                input.SupervisorMessages.Any())
+            {
+                _logger?.LogInformation("Step 5: Generating final polished report");
+                var refinedSummary = input.SupervisorState?.DraftReport ?? input.DraftReport;
+                var finalReport = await GenerateFinalReportAsync(userQuery, input.ResearchBrief, input.DraftReport, refinedSummary, cancellationToken);
+                input.FinalReport = finalReport;
+                _logger?.LogInformation("Final report generated: {Length} chars", finalReport.Length);
+                return input;
+            }
+
+            _logger?.LogInformation("MasterWorkflow.ExecuteByStepAsync completed - all steps finished");
+            return input;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "MasterWorkflow.ExecuteByStepAsync failed");
+            throw;
+        }
+    }
+
     /// <summary>
     /// Stream real-time updates from master and supervisor workflows.
     /// </summary>
@@ -268,17 +357,20 @@ public class MasterWorkflow
         _logger?.LogInformation("Starting MasterWorkflow stream");
         yield return Json("status", "connected", "timestamp", DateTime.UtcNow.ToString("O"));
 
-        // Step 1: Clarify
-        _logger?.LogInformation("Stream: Step 1 - Clarifying");
-        yield return Json("step", "1", "status", "clarifying user intent");
-        
-        var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
-        
-        if (needsClarification)
+        if (!userQuery.Contains("clarification_provided:"))
         {
-            _logger?.LogInformation("Stream: Clarification needed");
-            yield return Json("step", "1", "status", "clarification_needed", "message", clarificationQuestion);
-            yield break;
+            // Step 1: Clarify
+            _logger?.LogInformation("Stream: Step 1 - Clarifying");
+            yield return Json("step", "1", "status", "clarifying user intent");
+
+            var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
+
+            if (needsClarification)
+            {
+                _logger?.LogInformation("Stream: Clarification needed");
+                yield return Json("step", "1", "status", "clarification_needed", "message", clarificationQuestion);
+                yield break;
+            }
         }
         _logger?.LogInformation("Stream: Query clarified");
         yield return Json("step", "1", "status", "completed", "message", "query is sufficiently detailed");
@@ -332,6 +424,135 @@ public class MasterWorkflow
         _logger?.LogInformation("Stream: Workflow complete");
         yield return Json("status", "completed", "totalSteps", "5");
     }
+
+
+    public async IAsyncEnumerable<StreamState> StreamStateAsync(string userQuery,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        _logger?.LogInformation("Starting MasterWorkflow stream");
+        yield return new StreamState() 
+        {
+            Status = Json("status", "connected", "timestamp", DateTime.UtcNow.ToString("O")) 
+        }; 
+
+        if (!userQuery.Contains("clarification_provided:"))
+        {
+            // Step 1: Clarify
+            _logger?.LogInformation("Stream: Step 1 - Clarifying");
+            yield return new StreamState()
+            {
+                Status = Json("step", "1", "status", "clarifying user intent") 
+            };
+
+            var (needsClarification, clarificationQuestion) = await ClarifyWithUserAsync(userQuery, cancellationToken);
+
+            if (needsClarification)
+            {
+                _logger?.LogInformation("Stream: Clarification needed");
+                yield return new StreamState
+                {
+                    Status = Json("step", "1", "status", "clarification_needed", "message", clarificationQuestion)
+                };
+                yield break;
+            }
+        }
+        _logger?.LogInformation("Stream: Query clarified");
+        yield return new StreamState
+        {
+            Status = Json("step", "1", "status", "completed", "message", "query is sufficiently detailed")
+        };
+
+
+        // Step 2: Research brief
+        _logger?.LogInformation("Stream: Step 2 - Writing research brief");
+        yield return new StreamState
+        {
+            Status = Json("step", "2", "status", "writing research brief")
+        };
+
+        var researchBrief = await WriteResearchBriefAsync(userQuery, cancellationToken);
+        var briefPreview = researchBrief.Substring(0, Math.Min(150, researchBrief.Length)).Replace("\n", " ");
+        _logger?.LogInformation("Stream: Research brief completed ({Length} chars)", researchBrief.Length);
+        yield return new StreamState
+        {
+            Status = Json("step", "2", "status", "completed", "preview", briefPreview, "length", researchBrief.Length.ToString()),
+            ResearchBrief = researchBrief,
+            BriefPreview = briefPreview
+        };
+
+        // Step 3: Initial draft
+        _logger?.LogInformation("Stream: Step 3 - Generating initial draft");
+        yield return new StreamState
+        {
+            Status = Json("step", "3", "status", "generating initial draft report")
+        };
+
+        var draftReport = await WriteDraftReportAsync(researchBrief, cancellationToken);
+        _logger?.LogInformation("Stream: Draft report completed ({Length} chars)", draftReport.Length);
+        yield return new StreamState
+        {
+            Status = Json("step", "3", "status", "completed", "length", draftReport.Length.ToString()),
+            DraftReport = draftReport
+        };
+
+        // Step 4: Supervisor loop (stream its progress)
+        _logger?.LogInformation("Stream: Step 4 - Starting supervisor loop");
+        yield return new StreamState
+        {
+            Status = Json("step", "4", "status", "starting supervisor loop (diffusion process)")
+        };
+
+        int supervisorUpdateCount = 0;
+        await foreach (var supervisorUpdate in _supervisor.StreamSuperviseAsync(researchBrief, draftReport, cancellationToken: cancellationToken))
+        {
+            supervisorUpdateCount++;
+            _logger?.LogDebug("Stream: Supervisor update #{Count}", supervisorUpdateCount);
+            
+            yield return new StreamState
+            {
+                SupervisorUpdate = supervisorUpdate
+            };
+            // Yield heartbeat every 10 updates to keep connection alive
+            if (supervisorUpdateCount % 10 == 0)
+            {
+                yield return new StreamState
+                {
+                    Status = Json("heartbeat", "true", "supervisor_updates", supervisorUpdateCount.ToString())
+                };
+            }
+        }
+        _logger?.LogInformation("Stream: Supervisor loop completed ({UpdateCount} updates)", supervisorUpdateCount);
+        yield return new StreamState
+        {
+            Status = Json("step", "4", "status", "completed", "supervisor_updates", supervisorUpdateCount.ToString())
+        };
+
+        // Step 5: Final report
+        _logger?.LogInformation("Stream: Step 5 - Generating final report");
+        yield return new StreamState
+        {
+            Status = Json("step", "5", "status", "generating final polished report")
+        };
+
+        var refinedSummary = await _supervisor.SuperviseAsync(researchBrief, draftReport, cancellationToken: cancellationToken);
+        var finalReport = await GenerateFinalReportAsync(userQuery, researchBrief, draftReport, refinedSummary, cancellationToken);
+        _logger?.LogInformation("Stream: Final report completed ({Length} chars)", finalReport.Length);
+        yield return new StreamState
+        {
+            Status = Json("step", "5", "status", "completed", "length", finalReport.Length.ToString()),
+            RefinedSummary = refinedSummary,
+            FinalReport = finalReport
+        };
+
+        _logger?.LogInformation("Stream: Workflow complete");
+        yield return new StreamState
+        {
+            Status = Json("status", "completed", "totalSteps", "5")
+        };
+    }
+
+
+
 
     /// <summary>
     /// Helper to format JSON responses for streaming.

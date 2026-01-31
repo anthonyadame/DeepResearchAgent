@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import type { ChatMessage, ResearchConfig } from '@types/index'
 import { apiService } from '@services/api'
+import { useDebugLogger } from './useDebugLogger'
 
 export const useChat = (sessionId: string) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -9,18 +10,27 @@ export const useChat = (sessionId: string) => {
   const [streamingMessage, setStreamingMessage] = useState<string>('')
   const [isStreaming, setIsStreaming] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  
+  // Debug logging
+  const { logMessage, logApiCall, logApiResponse, logError, logState } = useDebugLogger()
 
   const loadHistory = useCallback(async () => {
     try {
       setIsLoading(true)
+      logApiCall(`/chat/${sessionId}/history`, 'GET', null, 'sent')
+      
       const history = await apiService.getChatHistory(sessionId)
+      
+      logApiResponse(`/chat/${sessionId}/history`, 200, history)
       setMessages(history)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load chat history')
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load chat history'
+      setError(errorMsg)
+      logError(err as Error, 'loadHistory')
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, logApiCall, logApiResponse, logError])
 
   const sendMessage = useCallback(async (content: string, config?: ResearchConfig) => {
     try {
@@ -36,18 +46,30 @@ export const useChat = (sessionId: string) => {
         metadata: null
       }
       setMessages(prev => [...prev, userMessage])
+      
+      // Log user message
+      logMessage(content, 'user', 'sent')
+      
+      // Log API call
+      logApiCall(`/chat/${sessionId}/query`, 'POST', { message: content, config }, 'sent')
 
       const response = await apiService.submitQuery(sessionId, content, config)
+      
+      // Log API response
+      logApiResponse(`/chat/${sessionId}/query`, 200, response)
+      logMessage(response.content, 'assistant', 'received')
+      
       setMessages(prev => [...prev, response])
       return response
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to send message'
       setError(errorMsg)
+      logError(err as Error, 'sendMessage')
       throw err
     } finally {
       setIsLoading(false)
     }
-  }, [sessionId])
+  }, [sessionId, logMessage, logApiCall, logApiResponse, logError])
 
   const sendMessageStreaming = useCallback(async (content: string, config?: ResearchConfig) => {
     try {
@@ -64,6 +86,12 @@ export const useChat = (sessionId: string) => {
         metadata: null
       }
       setMessages(prev => [...prev, userMessage])
+      
+      // Log user message
+      logMessage(content, 'user', 'sent')
+      
+      // Log API call
+      logApiCall(`/chat/${sessionId}/stream`, 'POST', { message: content, config }, 'sent')
 
       // Start streaming
       const controller = apiService.streamQuery(
@@ -73,6 +101,8 @@ export const useChat = (sessionId: string) => {
         // onUpdate callback
         (update: string) => {
           setStreamingMessage(prev => prev + update + '\n')
+          // Log streaming updates as state
+          logState({ update, accumulated: streamingMessage + update }, 'StreamUpdate', 'received')
         },
         // onComplete callback
         () => {
@@ -85,6 +115,11 @@ export const useChat = (sessionId: string) => {
             metadata: { streamed: true, config }
           }
           setMessages(prev => [...prev, assistantMessage])
+          
+          // Log complete message
+          logMessage(streamingMessage, 'assistant', 'received')
+          logApiResponse(`/chat/${sessionId}/stream`, 200, { completed: true })
+          
           setStreamingMessage('')
           setIsStreaming(false)
           abortControllerRef.current = null
@@ -92,6 +127,7 @@ export const useChat = (sessionId: string) => {
         // onError callback
         (error: Error) => {
           setError(error.message)
+          logError(error, 'sendMessageStreaming')
           setIsStreaming(false)
           setStreamingMessage('')
           abortControllerRef.current = null
@@ -102,11 +138,12 @@ export const useChat = (sessionId: string) => {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to send streaming message'
       setError(errorMsg)
+      logError(err as Error, 'sendMessageStreaming')
       setIsStreaming(false)
       setStreamingMessage('')
       throw err
     }
-  }, [sessionId, streamingMessage])
+  }, [sessionId, streamingMessage, logMessage, logApiCall, logApiResponse, logError, logState])
 
   const cancelStreaming = useCallback(() => {
     if (abortControllerRef.current) {
@@ -114,8 +151,10 @@ export const useChat = (sessionId: string) => {
       abortControllerRef.current = null
       setIsStreaming(false)
       setStreamingMessage('')
+      
+      logState({ cancelled: true }, 'StreamCancelled', 'sent')
     }
-  }, [])
+  }, [logState])
 
   return { 
     messages, 

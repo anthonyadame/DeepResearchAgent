@@ -126,10 +126,15 @@ public class RequestLoggingMiddleware
                     context.Response.StatusCode,
                     duration.TotalMilliseconds,
                     correlationId);
+
+                // FIX: Copy response body back BEFORE finally block
+                responseBody.Seek(0, SeekOrigin.Begin);
+                await responseBody.CopyToAsync(originalBodyStream);
             }
             finally
             {
-                await responseBody.CopyToAsync(originalBodyStream);
+                // Restore original stream
+                context.Response.Body = originalBodyStream;
             }
         }
     }

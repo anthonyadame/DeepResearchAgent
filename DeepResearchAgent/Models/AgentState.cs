@@ -48,9 +48,12 @@ public class AgentState
     /// </summary>
     [JsonPropertyName("final_report")]
     public string FinalReport { get; set; } = string.Empty;
-    
+
+    [JsonPropertyName("supervisor_state")]
+    public SupervisorState SupervisorState { get; set; } = new();
+
     [JsonPropertyName("needs_quality_repair")]
-    public bool NeedsQualityRepair { get; set; } = false;
+    public bool NeedsQualityRepair { get; set; } = true;
 }
 
 /// <summary>

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios'
-import type { ChatMessage, ChatSession, ResearchConfig } from '@types/index'
+import type { ChatMessage, ChatSession, ResearchConfig, StreamState } from '@types/index'
 
 class ApiService {
   private client: AxiosInstance
@@ -25,7 +25,110 @@ class ApiService {
     )
   }
 
-  // Chat endpoints
+  // ============================================
+  // NEW: MasterWorkflow Streaming Endpoint
+  // ============================================
+  /**
+   * Stream the MasterWorkflow with real-time progress updates via Server-Sent Events
+   * Returns StreamState objects as research progresses through all 5 phases
+   *
+   * @param userQuery - Research query from user
+   * @param onStateReceived - Callback for each StreamState object
+   * @param onComplete - Callback when stream completes
+   * @param onError - Callback for any streaming errors
+   * @returns AbortController to cancel the stream
+   */
+  streamMasterWorkflow(
+    userQuery: string,
+    onStateReceived: (state: StreamState) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const abortController = new AbortController()
+    const url = `${this.baseURL}/workflows/master/stream`
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userQuery }),
+      signal: abortController.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('Response body is not readable')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+
+            if (done) {
+              onComplete()
+              break
+            }
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+
+            // Keep the last line in buffer if it's incomplete
+            buffer = lines.pop() || ''
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.substring(6).trim()
+
+                if (!jsonStr) {
+                  continue
+                }
+
+                if (jsonStr === '[DONE]' || jsonStr === '{"status":"completed"}') {
+                  onComplete()
+                  return
+                }
+
+                try {
+                  const state: StreamState = JSON.parse(jsonStr)
+                  onStateReceived(state)
+                } catch (parseError) {
+                  console.error('Failed to parse StreamState JSON:', jsonStr, parseError)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.log('Stream aborted by user')
+          } else {
+            onError(error instanceof Error ? error : new Error('Stream error'))
+          }
+        } finally {
+          reader.releaseLock()
+        }
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') {
+          console.log('Fetch aborted')
+        } else {
+          onError(error)
+        }
+      })
+
+    return abortController
+  }
+
+  // ============================================
+  // EXISTING: Chat Endpoints
+  // ============================================
   async submitQuery(sessionId: string, message: string, config?: ResearchConfig): Promise<ChatMessage> {
     const response = await this.client.post(`/chat/${sessionId}/query`, {
       message,
@@ -78,7 +181,7 @@ class ApiService {
         try {
           while (true) {
             const { done, value } = await reader.read()
-            
+
             if (done) {
               onComplete()
               break
@@ -90,7 +193,7 @@ class ApiService {
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 const data = line.substring(6).trim()
-                
+
                 if (data === '[DONE]') {
                   onComplete()
                   return
@@ -137,7 +240,11 @@ class ApiService {
   }
 
   async createSession(title?: string): Promise<ChatSession> {
+    console.log('[apiService] Creating session with title:', title)
     const response = await this.client.post('/chat/sessions', { title })
+    console.log('[apiService] Response status:', response.status)
+    console.log('[apiService] Response data:', response.data)
+    console.log('[apiService] Response headers:', response.headers)
     return response.data
   }
 

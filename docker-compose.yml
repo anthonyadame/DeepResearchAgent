@@ -195,82 +195,82 @@ services:
       start_period: 30s
  
   # AlertManager for alert management
-  alertmanager:
-    image: prom/alertmanager:v0.27.0
-    container_name: research-alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager-data:/alertmanager
-    networks:
-      - research-network
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+  # alertmanager:
+  #   image: prom/alertmanager:v0.27.0
+  #   container_name: research-alertmanager
+  #   ports:
+  #     - "9093:9093"
+  #   volumes:
+  #     - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+  #     - alertmanager-data:/alertmanager
+  #   networks:
+  #     - research-network
+  #   command:
+  #     - '--config.file=/etc/alertmanager/alertmanager.yml'
+  #     - '--storage.path=/alertmanager'
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 30s
 
-  prometheus:
-    image: prom/prometheus:v2.51.2
-    container_name: research-prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
-      - prometheus-data:/prometheus
-    networks:
-      - research-network
-    depends_on:
-      alertmanager:
-        condition: service_started
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.enable-lifecycle'
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+  # prometheus:
+  #   image: prom/prometheus:v2.51.2
+  #   container_name: research-prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+  #     - prometheus-data:/prometheus
+  #   networks:
+  #     - research-network
+  #   depends_on:
+  #     alertmanager:
+  #       condition: service_started
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+  #     - '--web.console.templates=/usr/share/prometheus/consoles'
+  #     - '--web.enable-lifecycle'
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 30s
 
   # Grafana for metrics visualization
-  grafana:
-    image: grafana/grafana:10.4.1
-    container_name: research-grafana
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - INFLUXDB_ORG=${INFLUXDB_ORG:-deep-research}
-      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-research}
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-influx-token}
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    networks:
-      - research-network
-    depends_on:
-      prometheus:
-        condition: service_started
-      influxdb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+  # grafana:
+  #   image: grafana/grafana:10.4.1
+  #   container_name: research-grafana
+  #   ports:
+  #     - "3001:3000"
+  #   environment:
+  #     - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+  #     - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+  #     - INFLUXDB_ORG=${INFLUXDB_ORG:-deep-research}
+  #     - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-research}
+  #     - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:-influx-token}
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #     - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+  #     - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+  #   networks:
+  #     - research-network
+  #   depends_on:
+  #     prometheus:
+  #       condition: service_started
+  #     influxdb:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 30s
 
   # Deep Research Agent API
   api:
@@ -348,13 +348,13 @@ volumes:
     driver: local
   ollama_data:
     driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
-    driver: local
+  # prometheus-data:
+  #   driver: local
+  # grafana-data:
+  #   driver: local
   influxdb-data:
     driver: local
   influxdb-config:
     driver: local
-  alertmanager-data:
-    driver: local
+  # alertmanager-data:
+  #   driver: local

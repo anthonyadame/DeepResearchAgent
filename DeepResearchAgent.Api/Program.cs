@@ -298,13 +298,17 @@ app.UseSwaggerUI(options =>
 // API Middleware
 app.UseApiMiddleware();
 
-// Response Compression
-app.UseApiCompression();
+// Response Compression - TEMPORARILY DISABLED FOR TESTING
+// app.UseApiCompression();
 
 // Enable CORS
 app.UseCors("AllowUI");
 
-app.UseHttpsRedirection();
+// ONLY redirect to HTTPS in production
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Health Checks
 app.MapApiHealthChecks();

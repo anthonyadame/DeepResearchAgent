@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using DeepResearchAgent.Api.Services;
 using DeepResearchAgent.Api.DTOs;
+using DeepResearchAgent.Api.DTOs.Requests.Chat;
+using DeepResearchAgent.Api.DTOs.Responses.Chat;
+using DeepResearchAgent.Models;
 using System.ComponentModel.DataAnnotations;
 
 namespace DeepResearchAgent.Api.Controllers;
@@ -36,18 +39,56 @@ public class ChatController : ControllerBase
     public async Task<ActionResult<ChatSession>> CreateSession(
         [FromBody] CreateSessionRequest? request)
     {
-        _logger.LogInformation("Creating new chat session");
+        _logger.LogInformation("Creating new chat session with title: {Title}", request?.Title);
 
         try
         {
             var session = await _sessionService.CreateSessionAsync(request?.Title);
-            return CreatedAtAction(nameof(GetSession), new { id = session.Id }, session);
+            _logger.LogInformation("Session created: Id={SessionId}, Title={Title}, Messages={MessageCount}", 
+                session.Id, session.Title, session.Messages?.Count ?? 0);
+            
+            // DEBUG: Log the session object to see what we're trying to serialize
+            _logger.LogInformation("Session object type: {Type}", session.GetType().FullName);
+            _logger.LogInformation("Attempting to serialize session...");
+            
+            try
+            {
+                var testJson = System.Text.Json.JsonSerializer.Serialize(session);
+                _logger.LogInformation("Serialized JSON length: {Length}", testJson.Length);
+                _logger.LogInformation("Serialized JSON: {Json}", testJson);
+            }
+            catch (Exception serEx)
+            {
+                _logger.LogError(serEx, "Failed to serialize session!");
+            }
+            
+            // Use Created() method - sets 201 status, Location header, and serializes body automatically
+            return Created($"/api/chat/sessions/{session.Id}", session);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating session");
             return BadRequest(new { error = "Failed to create session", details = ex.Message });
         }
+    }
+    
+    /// <summary>
+    /// TEST: Return a simple hardcoded session to test serialization
+    /// </summary>
+    [HttpGet("test-session")]
+    public IActionResult TestSession()
+    {
+        var testSession = new ChatSession
+        {
+            Id = "test-123",
+            Title = "Test Session",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            Messages = new List<DTOs.ChatMessage>(),
+            Config = null
+        };
+        
+        return Ok(testSession);
     }
 
     /// <summary>
@@ -125,12 +166,12 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
-    /// Send a message in a chat session
+    /// Send a message in a chat session (full pipeline - kept for backward compatibility)
     /// </summary>
     [HttpPost("{sessionId}/query")]
-    [ProducesResponseType(typeof(ChatMessage), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DTOs.ChatMessage), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ChatMessage>> SendMessage(
+    public async Task<ActionResult<DTOs.ChatMessage>> SendMessage(
         [Required] string sessionId,
         [FromBody][Required] SendMessageRequest request)
     {
@@ -139,7 +180,7 @@ public class ChatController : ControllerBase
         try
         {
             // Add user message to session
-            var userMessage = new ChatMessage
+            var userMessage = new DTOs.ChatMessage
             {
                 Id = Guid.NewGuid().ToString(),
                 Role = "user",
@@ -158,7 +199,7 @@ public class ChatController : ControllerBase
             );
 
             // Add assistant message to session
-            var assistantMessage = new ChatMessage
+            var assistantMessage = new DTOs.ChatMessage
             {
                 Id = Guid.NewGuid().ToString(),
                 Role = "assistant",
@@ -186,12 +227,52 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
+    /// Execute a single step of the research workflow (step-by-step mode).
+    /// UI passes the current AgentState and gets back the updated state with formatted content.
+    /// Each call executes exactly one step based on the state's current progress.
+    /// 
+    /// Flow:
+    /// 1. User submits query → AgentState with NeedsQualityRepair=true → step 1 (clarify)
+    /// 2. If clarification needed: return question, else set NeedsQualityRepair=false → step 2 (brief)
+    /// 3. Step 2 → returns ResearchBrief
+    /// 4. Step 3 → returns DraftReport
+    /// 5. Step 4 → returns RawNotes (supervisor refinement)
+    /// 6. Step 5 → returns FinalReport
+    /// </summary>
+    [HttpPost("step")]
+    [ProducesResponseType(typeof(ChatStepResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ChatStepResponse>> ExecuteStep(
+        [FromBody][Required] ChatStepRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Executing workflow step - NeedsQualityRepair: {NeedsQualityRepair}", 
+            request.CurrentState.NeedsQualityRepair);
+
+        try
+        {
+            var response = await _integrationService.ProcessChatStepAsync(request, cancellationToken);
+            return Ok(response);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid request for step execution");
+            return BadRequest(new { error = "Invalid request", details = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error executing workflow step");
+            return StatusCode(500, new { error = "Failed to execute step", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get chat history for a session
     /// </summary>
     [HttpGet("{sessionId}/history")]
-    [ProducesResponseType(typeof(List<ChatMessage>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(List<DTOs.ChatMessage>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<List<ChatMessage>>> GetHistory([Required] string sessionId)
+    public async Task<ActionResult<List<DTOs.ChatMessage>>> GetHistory([Required] string sessionId)
     {
         _logger.LogInformation("Retrieving history for session: {SessionId}", sessionId);
 
@@ -208,46 +289,6 @@ public class ChatController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving history for session {SessionId}", sessionId);
             return StatusCode(500, new { error = "Failed to retrieve history", details = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Upload a file to a chat session
-    /// </summary>
-    [HttpPost("{sessionId}/files")]
-    [ProducesResponseType(typeof(FileUploadResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<FileUploadResponse>> UploadFile(
-        [Required] string sessionId,
-        [FromForm][Required] IFormFile file)
-    {
-        _logger.LogInformation("Uploading file to session: {SessionId}", sessionId);
-
-        try
-        {
-            if (file == null || file.Length == 0)
-            {
-                return BadRequest(new { error = "No file provided" });
-            }
-
-            // TODO: Implement file upload logic
-            // For now, return mock response
-            var response = new FileUploadResponse
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = file.FileName,
-                Size = file.Length,
-                ContentType = file.ContentType,
-                UploadedAt = DateTime.UtcNow
-            };
-
-            _logger.LogInformation("File uploaded successfully: {FileName}", file.FileName);
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading file to session {SessionId}", sessionId);
-            return StatusCode(500, new { error = "Failed to upload file", details = ex.Message });
         }
     }
 }

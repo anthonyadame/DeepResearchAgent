@@ -33,9 +33,13 @@
   </Folder>
 
 	<Folder Name="/DeepResearchAgent.UI/src/">
+		<File Path="App.css" />
+		<File Path="App.tsx" />
     </Folder>
 
 	<Folder Name="/DeepResearchAgent.UI/src/components/">
+		<File Path="ClarificationDialog.tsx" />
+		<File Path="ContentDisplay.tsx" />
 	  <File Path="DeepResearchAgent.UI/src/components/ChatDialog.tsx" />
 	  <File Path="DeepResearchAgent.UI/src/components/ConfigurationDialog.tsx" />
 	  <File Path="DeepResearchAgent.UI/src/components/FileUploadModal.tsx" />
@@ -43,6 +47,10 @@
 	  <File Path="DeepResearchAgent.UI/src/components/MessageBubble.tsx" />
 	  <File Path="DeepResearchAgent.UI/src/components/MessageList.tsx" />
 	  <File Path="DeepResearchAgent.UI/src/components/Sidebar.tsx" />
+		<File Path="ErrorAlert.tsx" />
+		<File Path="ProgressBar.tsx" />
+		<File Path="QueryInput.tsx" />
+		<File Path="ResearchChat.tsx" />
     </Folder>
 
 	<Folder Name="/BuildDocs/">
@@ -95,9 +103,11 @@
 
 
 	<Folder Name="/DeepResearchAgent.UI/src/hooks/">
+		<File Path="useResearchWorkflow.ts" />
     </Folder>
 
 	<Folder Name="/DeepResearchAgent.UI/src/services/">
+		<File Path="chatService.ts" />
 	  <File Path="DeepResearchAgent.UI/src/services/api.ts" />
     </Folder>
 
